@@ -1,0 +1,182 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Ventas Terramar</title>
+<meta name="description" content="Control privado de ventas, abonos, pedidos e inventario.">
+<meta name="theme-color" content="#eceef0" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#141517" media="(prefers-color-scheme: dark)">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icons/icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Ventas">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/app.css">
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js" defer></script>
+<script type="module" src="js/app.js"></script>
+</head>
+<body>
+<div id="boot" class="boot">Cargando…</div>
+
+<!-- Inicio de sesión -->
+<div id="login" class="login" hidden>
+  <form class="card" id="f-login" novalidate>
+    <img class="logo" src="icons/icon.svg" alt="">
+    <h1>Mis ventas Terramar</h1>
+    <p class="sub" style="margin-top:6px">Entra con tu correo y contraseña.</p>
+    <div class="fld"><label for="l-email">Correo</label><input id="l-email" type="email" autocomplete="username" inputmode="email" required></div>
+    <div class="fld"><label for="l-pass">Contraseña</label><input id="l-pass" type="password" autocomplete="current-password" required></div>
+    <div class="btns"><button class="btn pri block" type="submit" id="l-btn">Entrar</button></div>
+    <div class="msg" id="l-msg" role="status"></div>
+    <button class="linkbtn" type="button" id="l-reset">Olvidé mi contraseña</button>
+  </form>
+</div>
+
+<!-- Aplicación -->
+<div id="app" hidden>
+<header class="top"><div class="wrap">
+  <div class="top-row">
+    <h1>Mis ventas Terramar</h1>
+    <div class="who"><span id="who"></span><button class="btn sm" type="button" id="logout">Salir</button></div>
+  </div>
+  <nav class="tabs" role="tablist" id="tabs">
+    <button data-t="resumen">Resumen</button>
+    <button data-t="ventas">Ventas</button>
+    <button data-t="abonos">Abonos</button>
+    <button data-t="pedidos">Pedidos</button>
+    <button data-t="clientes">Clientes</button>
+    <button data-t="productos">Productos</button>
+    <button data-t="entradas">Compras a Terramar</button>
+    <button data-t="gastos">Gastos</button>
+    <button data-t="metricas">Métricas</button>
+    <button data-t="movimientos">Movimientos</button>
+    <button data-t="respaldo">Respaldo</button>
+  </nav>
+</div></header>
+
+<main><div class="wrap">
+  <div id="demo" class="demo" hidden>Modo de prueba: estos son datos de ejemplo y no se guardan.</div>
+  <div id="offline" class="offline" hidden>Sin internet. Puedes seguir registrando: tus cambios se suben solos cuando vuelva la señal.</div>
+
+  <section id="v-resumen">
+    <h2 class="sec-t">Este mes</h2>
+    <div class="kpis" id="k-mes"></div>
+    <h2 class="sec-t">Desde que empezaste</h2>
+    <div class="kpis" id="k-total"></div>
+    <div id="start"></div>
+    <div class="two">
+      <div class="card"><h3>Quién te debe más</h3><ul class="list" id="deben"></ul></div>
+      <div class="card"><h3>Vendido y cobrado por mes</h3>
+        <div class="legend"><span><i style="background:var(--ink)"></i>Vendido</span><span><i style="background:var(--brand)"></i>Cobrado</span></div>
+        <div class="bars" id="bars"></div></div>
+      <div class="card"><h3>Stock bajo</h3><ul class="list" id="bajo"></ul></div>
+      <div class="card"><h3>Pedidos sin entregar</h3><ul class="list" id="r-ped"></ul></div>
+    </div>
+  </section>
+
+  <section id="v-ventas" class="grid"><div data-form="ventas"></div><div data-table="ventas"></div></section>
+  <section id="v-abonos" class="grid"><div data-form="abonos"></div><div data-table="abonos"></div></section>
+
+  <section id="v-pedidos">
+    <div class="two" style="margin-top:0">
+      <div class="card"><h3>Lo que tienes que pedir a Terramar</h3>
+        <p class="sub small" style="margin-bottom:6px">Suma, por producto, de las ventas en “Por pedir a Terramar”.</p>
+        <ul class="list" id="porpedir"></ul>
+        <div class="btns" id="porpedir-b"></div></div>
+      <div class="card"><h3>Cómo funciona</h3><ol class="steps">
+        <li>Registra la venta en <b>Ventas</b>. Si no tienes stock, queda como <b>Por pedir a Terramar</b>.</li>
+        <li>Cuando hagas tu pedido, toca <b>Ya hice el pedido</b> o avanza cada venta con su botón.</li>
+        <li>Cuando llegue, regístralo en <b>Compras a Terramar</b> y marca la venta como <b>Llegó</b>.</li>
+        <li>Al marcar <b>Entregado</b>, sale de esta lista.</li></ol></div>
+    </div>
+    <div class="card" style="margin-top:18px"><div class="tools">
+      <input type="search" placeholder="Buscar pedido…" id="q-ped" aria-label="Buscar pedido">
+      <select id="f-ped" aria-label="Filtrar por estado"><option value="">Todos los pendientes</option><option>Por pedir a Terramar</option><option>Pedido a Terramar</option><option>Llegó</option></select>
+    </div><div id="t-pedidos"></div></div>
+  </section>
+
+  <section id="v-clientes" class="grid"><div data-form="clientes"></div><div data-table="clientes"></div></section>
+  <section id="v-productos" class="grid"><div data-form="productos"></div><div data-table="productos"></div></section>
+
+  <section id="v-entradas">
+    <div class="kpis" id="k-terramar" style="margin-bottom:18px"></div>
+    <div class="grid">
+      <div class="col"><div data-form="entradas"></div><div data-form="pagos"></div></div>
+      <div class="col"><div data-table="entradas"></div><div data-table="pagos"></div></div>
+    </div>
+  </section>
+
+  <section id="v-gastos" class="grid"><div data-form="gastos"></div><div data-table="gastos"></div></section>
+
+  <section id="v-metricas">
+    <div class="card filters">
+      <div class="fld"><label for="m-pre">Periodo</label><select id="m-pre">
+        <option value="mes">Este mes</option><option value="mesp">Mes pasado</option><option value="d7">Últimos 7 días</option>
+        <option value="d30">Últimos 30 días</option><option value="d90">Últimos 90 días</option><option value="anio">Este año</option>
+        <option value="todo">Todo</option><option value="custom">Elegir fechas</option></select></div>
+      <div class="fld"><label for="m-a">Desde</label><input type="date" id="m-a"></div>
+      <div class="fld"><label for="m-b">Hasta</label><input type="date" id="m-b"></div>
+      <div class="fld"><label for="m-camp">Campaña</label><select id="m-camp"></select></div>
+      <div class="fld"><label for="m-grp">Agrupar por</label><select id="m-grp"><option value="auto">Automático</option><option value="dia">Día</option><option value="semana">Semana</option><option value="mes">Mes</option></select></div>
+    </div>
+    <p class="cmp" id="m-cmp"></p>
+    <h2 class="sec-t">Ventas y ganancia</h2><div class="kpis" id="m-k1"></div>
+    <h2 class="sec-t">Meta Ads</h2><div class="kpis" id="m-k2"></div>
+    <div class="card" style="margin-top:18px"><h3>Ventas por <span id="m-grp-l">día</span></h3>
+      <div class="legend"><span><i style="background:var(--brand)"></i>Este periodo</span><span><i class="ln"></i>Periodo anterior</span></div>
+      <div class="chart"><canvas id="ch-ventas" role="img" aria-label="Gráfica de ventas por periodo"></canvas></div></div>
+    <div class="two">
+      <div class="card"><h3>De tus ventas a tu ganancia</h3><div id="m-cascada"></div></div>
+      <div class="card"><h3>Cobrado vs. pendiente</h3><p class="sub small">De las ventas de este periodo.</p><div id="m-cobro"></div></div>
+    </div>
+    <div class="card" style="margin-top:18px"><h3>Resultados por campaña de Meta Ads</h3>
+      <div class="legend"><span><i style="background:var(--ink)"></i>Ventas</span><span><i style="background:var(--brand)"></i>Gasto en anuncios</span></div>
+      <div class="chart tall" id="ch-camp-w"><canvas id="ch-camp" role="img" aria-label="Ventas contra gasto por campaña"></canvas></div>
+      <div class="scroll" id="m-camp-t" style="margin-top:14px"></div></div>
+    <div class="two">
+      <div class="card"><h3>Productos más vendidos</h3><div id="m-prod"></div></div>
+      <div class="card"><h3>Clientes que más compran</h3><div id="m-cli"></div></div>
+      <div class="card"><h3>¿De dónde vienen tus ventas?</h3><div id="m-origen"></div></div>
+      <div class="card"><h3>Gastos por categoría</h3><div id="m-gastos"></div></div>
+    </div>
+  </section>
+
+  <section id="v-movimientos"><div class="card"><div class="tools">
+    <input type="search" placeholder="Buscar movimiento…" id="q-mov" aria-label="Buscar movimiento">
+    <select id="f-mov" aria-label="Tipo de movimiento"><option value="">Todos</option><option>Venta</option><option>Abono</option><option>Compra a Terramar</option><option>Pago a Terramar</option><option>Gasto</option></select>
+    <button class="btn" type="button" id="csv-mov">Descargar CSV</button>
+  </div><div id="t-movimientos"></div></div></section>
+
+  <section id="v-respaldo">
+    <div class="two" style="margin-top:0">
+      <div class="card"><h3>Sacar un respaldo</h3>
+        <p class="sub">Descarga todo (productos, clientes, ventas, abonos, compras, pagos y gastos) en un archivo de Excel. Te recomiendo hacerlo cada semana.</p>
+        <div class="btns"><button class="btn pri" type="button" id="exp-xlsx">Descargar respaldo en Excel</button></div>
+        <p class="hint" id="exp-last"></p></div>
+      <div class="card"><h3>Importar datos</h3>
+        <p class="sub">Sube un respaldo de Excel que hayas descargado de aquí. Los registros que ya existen se actualizan y los nuevos se agregan. También puedes llenar las hojas <b>Productos</b> o <b>Clientes</b> de un respaldo con nuevos renglones (deja vacía la columna <b>id</b>).</p>
+        <div class="btns"><label class="btn" for="imp-file">Elegir archivo de Excel…</label><input type="file" id="imp-file" accept=".xlsx,.xls" hidden></div>
+        <p class="hint" id="imp-msg"></p></div>
+      <div class="card"><h3>Instalar en tu celular</h3><ol class="steps">
+        <li><b>iPhone:</b> abre esta página en <b>Safari</b>, toca el botón <b>Compartir</b> (cuadrito con flecha) y elige <b>Agregar a inicio</b>.</li>
+        <li><b>Android:</b> abre esta página en <b>Chrome</b>, toca los <b>tres puntitos ⋮</b> y elige <b>Instalar app</b> o <b>Agregar a la pantalla principal</b>.</li></ol>
+        <div class="btns"><button class="btn" type="button" id="install" hidden>Instalar ahora</button></div></div>
+      <div class="card"><h3>Tu cuenta</h3>
+        <p class="sub">Sesión iniciada como <b id="who2"></b>. Tus datos solo los puedes ver tú.</p>
+        <div class="btns"><button class="btn" type="button" id="pw-reset">Cambiar mi contraseña</button></div>
+        <p class="hint" id="pw-msg"></p></div>
+    </div>
+  </section>
+</div></main>
+</div>
+
+<dialog id="dlg"><div class="dlg-h"><h2 id="dlg-t"></h2><button class="btn sm" type="button" id="dlg-x">Cerrar</button></div><div class="dlg-b" id="dlg-b"></div></dialog>
+<div class="toast" id="toast" role="status" hidden></div>
+<datalist id="dl-campanas"></datalist><datalist id="dl-catalogos"></datalist>
+</body>
+</html>
