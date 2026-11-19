@@ -1,6 +1,6 @@
 // Permite abrir la app sin señal. Los archivos propios se buscan primero en internet
 // (así siempre tienes la versión más nueva) y, si no hay conexión, se usa la copia guardada.
-const CACHE = 'ventas-v2';
+const CACHE = 'ventas-v3';
 const SHELL = ['./', 'index.html', 'css/app.css', 'js/app.js', 'js/store.js', 'js/config.js', 'manifest.webmanifest', 'icons/icon.svg', 'icons/icon-192.png'];
 const CDN = ['www.gstatic.com', 'cdn.jsdelivr.net', 'fonts.googleapis.com', 'fonts.gstatic.com'];
 
@@ -15,7 +15,8 @@ self.addEventListener('fetch', e => {
   if (req.method !== 'GET') return;
   const url = new URL(req.url);
   if (url.origin === location.origin) {
-    e.respondWith(fetch(req).then(res => {
+    // 'no-cache' pide siempre a GitHub la versión más nueva (sin usar la copia vieja del navegador).
+    e.respondWith(fetch(req.url, { cache: 'no-cache', credentials: 'same-origin' }).then(res => {
       if (res.ok) { const copy = res.clone(); caches.open(CACHE).then(c => c.put(req, copy)); }
       return res;
     }).catch(() => caches.match(req, { ignoreSearch: true }).then(r => r || caches.match('index.html'))));
