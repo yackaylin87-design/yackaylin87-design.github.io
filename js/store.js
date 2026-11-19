@@ -135,7 +135,12 @@ function seed() {
     x5: { fecha: d(16), categoria: 'Envíos', campana: '', monto: 120, mensajes: 0, resultados: 0, nota: 'Paquetería' },
     x6: { fecha: d(9), categoria: 'Empaque', campana: '', monto: 85, mensajes: 0, resultados: 0, nota: 'Bolsas y moños' },
   };
+  const R = {
+    r1: { fecha: d(44), productoId: 'p4', descripcion: '', cantidad: 3, valor: 55, nota: 'Con el pedido 1002' },
+    r2: { fecha: d(10), productoId: '', descripcion: 'Bolsa de regalo navideña', cantidad: 5, valor: 30, nota: 'Con el pedido 1003' },
+  };
+  const L = { l1: { productoId: 'p2', cantidad: 3 }, l2: { productoId: 'p1', cantidad: 4 } };
   let k = 1;
   const stamp = o => { for (const id in o) o[id].creado = k++; return o; };
-  return { productos: stamp(P), clientes: stamp(Cl), entradas: stamp(E), ventas: stamp(V), abonos: stamp(Ab), pagos: stamp(Pg), gastos: stamp(G) };
+  return { productos: stamp(P), clientes: stamp(Cl), entradas: stamp(E), ventas: stamp(V), abonos: stamp(Ab), pagos: stamp(Pg), gastos: stamp(G), regalos: stamp(R), lista: stamp(L), ajustes: {} };
 }

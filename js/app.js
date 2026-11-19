@@ -2,7 +2,7 @@ import { firebaseConfig } from './config.js';
 import { createStore } from './store.js';
 
 /* ============ Utilidades ============ */
-const COLS = ['productos', 'clientes', 'ventas', 'abonos', 'entradas', 'pagos', 'gastos'];
+const COLS = ['productos', 'clientes', 'ventas', 'abonos', 'entradas', 'pagos', 'gastos', 'regalos', 'lista', 'ajustes'];
 const S = Object.fromEntries(COLS.map(c => [c, []]));
 let C = {}, store = null, user = null;
 const editing = {}, q = {}, charts = {};
@@ -55,11 +55,13 @@ const vUnits = v => sum(items(v), i => i.cantidad);
 const vDesc = v => items(v).map(i => `${pName(i.productoId)} ×${num(i.cantidad)}`).join(', ');
 const payState = v => { const t = vTotal(v), p = C.vp?.[v.id] ?? t; return p <= 0.005 ? 'Pagada' : p < t - 0.005 ? 'Parcial' : 'Pendiente'; };
 const eCosto = e => num(e.costo) * num(e.cantidad);
+const rName = r => r.productoId ? pName(r.productoId) : (r.descripcion || 'Regalo');
 
 function compute() {
   const stock = {}, cl = {}, vp = {};
   for (const p of S.productos) stock[p.id] = 0;
   for (const e of S.entradas) stock[e.productoId] = (stock[e.productoId] || 0) + num(e.cantidad);
+  for (const r of S.regalos) if (r.productoId) stock[r.productoId] = (stock[r.productoId] || 0) + num(r.cantidad);
   for (const v of S.ventas) for (const i of items(v)) stock[i.productoId] = (stock[i.productoId] || 0) - num(i.cantidad);
   const g = id => cl[id] || (cl[id] = { vendido: 0, abonado: 0, n: 0, ultima: '' });
   for (const c of S.clientes) g(c.id);
@@ -120,6 +122,12 @@ const F = {
   pagos: { title: 'Pago a Terramar', one: 'pago', many: 'pagos', f: [
     fecha, { k: 'monto', l: 'Monto pagado', t: 'money', req: 1 },
     { k: 'metodo', l: 'Método', t: 'opt', opts: METODOS }, nota] },
+  regalos: { title: 'Registrar regalo de Terramar', one: 'regalo', many: 'regalos', f: [
+    fecha, { k: 'productoId', l: 'Producto (si está en tu lista)', t: 'sel', src: 'productos', quick: 1, none: 'No está en mi lista' },
+    { k: 'descripcion', l: '¿Qué te regalaron?', t: 'text', show: o => !o.productoId, ph: 'Ej. Bolsa de regalo, muestra de crema' },
+    { k: 'cantidad', l: 'Piezas', t: 'int', req: 1 },
+    { k: 'valor', l: 'Precio de venta por pieza', t: 'money', help: 'Si es de tu lista, se llena solo. Sirve para saber cuánto vale lo que te regalaron.' },
+    { k: 'nota', l: 'Nota (por qué pedido te llegó…)', t: 'text' }] },
   gastos: { title: 'Registrar gasto', one: 'gasto', many: 'gastos', f: [
     fecha, { k: 'categoria', l: 'Categoría', t: 'opt', opts: CATS },
     { k: 'campana', l: 'Campaña', t: 'list', list: 'campanas', ph: 'Ej. Navidad', help: 'Usa el mismo nombre que en tus ventas para medir resultados.' },
@@ -195,7 +203,8 @@ function resetForm(c) {
 }
 function startEdit(c, id) {
   const x = byId(c, id); if (!x) return;
-  go(c === 'pagos' ? 'entradas' : c);
+  const tab = c === 'pagos' || c === 'regalos' ? 'entradas' : c;
+  go(tab); if (tab === 'entradas') sub(c === 'regalos' ? 'regalos' : 'compras');
   const fm = $('#f-' + c); editing[c] = id;
   for (const f of F[c].f) {
     if (f.onlyNew) continue;
@@ -230,6 +239,7 @@ function save(c, fm, { quick = false } = {}) {
     if (!o.items.length) { toast('Agrega al menos un producto a la venta.', 'warn'); return null; }
     if (o.items.some(i => i.cantidad <= 0)) { toast('Revisa las cantidades: deben ser 1 o más.', 'warn'); return null; }
   }
+  if (c === 'regalos' && !o.productoId && !o.descripcion) { toast('Elige el producto o escribe qué te regalaron.', 'warn'); return null; }
   const id = (!quick && editing[c]) || store.newId(c);
   const ini = o.inicial || 0, metIni = o.metodoIni || 'Efectivo';
   delete o.inicial; delete o.metodoIni;
@@ -251,7 +261,8 @@ const cap = s => s[0].toUpperCase() + s.slice(1);
 function remove(c, id) {
   const ops = [{ t: 'del', c, id }];
   if (c === 'clientes' && (S.ventas.some(v => v.clienteId === id) || S.abonos.some(a => a.clienteId === id))) return toast('No se puede borrar: este cliente tiene ventas o abonos. Bórralos primero.', 'warn');
-  if (c === 'productos' && (S.ventas.some(v => items(v).some(i => i.productoId === id)) || S.entradas.some(e => e.productoId === id))) return toast('No se puede borrar: este producto aparece en ventas o compras.', 'warn');
+  if (c === 'productos' && (S.ventas.some(v => items(v).some(i => i.productoId === id)) || S.entradas.some(e => e.productoId === id) || S.regalos.some(r => r.productoId === id))) return toast('No se puede borrar: este producto aparece en ventas, compras o regalos.', 'warn');
+  if (c === 'productos') for (const l of S.lista) if (l.productoId === id) ops.push({ t: 'del', c: 'lista', id: l.id });
   if (c === 'ventas') for (const a of S.abonos) if (a.ventaId === id) ops.push({ t: 'del', c: 'abonos', id: a.id });
   commit(ops); toast('Registro borrado.');
   if (editing[c] === id) resetForm(c);
@@ -262,10 +273,11 @@ function fillSelects() {
   for (const c in F) for (const f of F[c].f) if (f.t === 'sel') {
     const el = $(`#${c}-${f.k}`); if (!el) continue; const v = el.value;
     const list = [...S[f.src]].sort(byName);
-    el.innerHTML = `<option value="">${list.length ? 'Elegir…' : 'Primero agrega ' + f.src}</option>` + list.map(x => `<option value="${esc(x.id)}">${esc(x.nombre)}${x.codigo ? ' · ' + esc(x.codigo) : ''}</option>`).join('');
+    el.innerHTML = `<option value="">${f.none || (list.length ? 'Elegir…' : 'Primero agrega ' + f.src)}</option>` + list.map(x => `<option value="${esc(x.id)}">${esc(x.nombre)}${x.codigo ? ' · ' + esc(x.codigo) : ''}</option>`).join('');
     el.value = v;
   }
   for (const s of $$('.it-p')) { const v = s.value; s.innerHTML = prodOptions(v); s.value = v; }
+  { const s = $('#lista-prod'), v = s.value; s.innerHTML = prodOptions(v); s.value = v; }
   const camps = new Set([...S.ventas.map(v => v.campana), ...S.gastos.map(g => g.campana)].filter(Boolean));
   $('#dl-campanas').innerHTML = [...camps].sort().map(x => `<option value="${esc(x)}">`).join('');
   const cats = new Set(S.productos.map(p => p.catalogo).filter(Boolean));
@@ -330,6 +342,7 @@ function rows(c) {
   if (c === 'abonos') return { h: ['Fecha', 'Cliente', 'Monto', 'Método', 'Nota'], n: [2], r: [...S.abonos].sort(ord(0)).map(a => ({ id: a.id, v: [fdate(a.fecha), cName(a.clienteId), r2(a.monto), a.metodo, a.nota], h: [fdate(a.fecha), esc(cName(a.clienteId)), `<b>${money(a.monto)}</b>`, esc(a.metodo), esc(a.nota)] })) };
   if (c === 'entradas') return { h: ['Fecha', 'Producto', 'Piezas', 'Costo c/u', 'Total', 'Pagado', 'Nota'], n: [2, 3, 4, 5], r: [...S.entradas].sort(ord(0)).map(e => ({ id: e.id, v: [fdate(e.fecha), pName(e.productoId), num(e.cantidad), r2(e.costo), r2(eCosto(e)), r2(e.pagado), e.nota], h: [fdate(e.fecha), esc(pName(e.productoId)), num(e.cantidad), money(e.costo), `<b>${money(eCosto(e))}</b>`, money(e.pagado), esc(e.nota)] })) };
   if (c === 'pagos') return { h: ['Fecha', 'Monto', 'Método', 'Nota'], n: [1], r: [...S.pagos].sort(ord(0)).map(p => ({ id: p.id, v: [fdate(p.fecha), r2(p.monto), p.metodo, p.nota], h: [fdate(p.fecha), `<b>${money(p.monto)}</b>`, esc(p.metodo), esc(p.nota)] })) };
+  if (c === 'regalos') return { h: ['Fecha', 'Regalo', 'Piezas', 'Valor c/u', 'Valor total', 'Nota'], n: [2, 3, 4], r: [...S.regalos].sort(ord(0)).map(r => ({ id: r.id, v: [fdate(r.fecha), rName(r), num(r.cantidad), r2(r.valor), r2(num(r.valor) * num(r.cantidad)), r.nota], h: [fdate(r.fecha), `<b>${esc(rName(r))}</b>${r.productoId ? '' : ' <span class="pill p-mute">Fuera de tu lista</span>'}`, num(r.cantidad), money(r.valor), `<b>${money(num(r.valor) * num(r.cantidad))}</b>`, esc(r.nota)] })) };
   if (c === 'gastos') return { h: ['Fecha', 'Categoría', 'Campaña', 'Monto', 'Mensajes', 'Resultados', 'Nota'], n: [3, 4, 5], r: [...S.gastos].sort(ord(0)).map(g => ({ id: g.id, v: [fdate(g.fecha), g.categoria, g.campana, r2(g.monto), num(g.mensajes) || '', num(g.resultados) || '', g.nota], h: [fdate(g.fecha), `<span class="pill ${g.categoria === 'Meta Ads' ? 'p-info' : 'p-mute'}">${esc(g.categoria)}</span>`, esc(g.campana), `<b>${money(g.monto)}</b>`, num(g.mensajes) || '', num(g.resultados) || '', esc(g.nota)] })) };
 }
 function tableHTML(R, list, act) {
@@ -396,7 +409,7 @@ function pedidos() {
   const e = Object.entries(pp).sort((a, b) => pName(a[0]).localeCompare(pName(b[0]), 'es'));
   const costo = sum(e, ([id, n]) => n * num(byId('productos', id)?.costo));
   $('#porpedir').innerHTML = e.length ? e.map(([id, n]) => { const p = byId('productos', id); return `<li><span>${esc(pName(id))}${p?.codigo ? ` <span class="small muted">${esc(p.codigo)}</span>` : ''}</span><span class="n"><b>${n}</b> pza${n === 1 ? '' : 's'}</span></li>`; }).join('') + `<li><span class="muted">Costo aproximado</span><span class="n"><b>${money(costo)}</b></span></li>` : '<li class="empty" style="display:block">No hay nada pendiente por pedir.</li>';
-  $('#porpedir-b').innerHTML = e.length ? '<button class="btn pri" type="button" id="ya-pedi">Ya hice el pedido a Terramar</button> <button class="btn" type="button" id="copy-ped">Copiar lista</button>' : '';
+  $('#porpedir-b').innerHTML = e.length ? '<button class="btn pri" type="button" data-addporpedir>Pasar a mi próximo pedido</button> <button class="btn" type="button" id="ya-pedi">Ya hice el pedido a Terramar</button> <button class="btn" type="button" id="copy-ped">Copiar lista</button>' : '';
   const t = ($('#q-ped').value || '').toLowerCase(), fs = $('#f-ped').value;
   const L = S.ventas.filter(v => est(v) !== 'Entregado' && (!fs || est(v) === fs)).sort(ord(1)).filter(v => !t || `${cName(v.clienteId)} ${vDesc(v)} ${est(v)}`.toLowerCase().includes(t));
   const R = { h: ['Fecha', 'Cliente', 'Productos', 'Le falta pagar', 'Estado'], n: [3] };
@@ -413,6 +426,77 @@ function terramar() {
   ].join('');
 }
 
+/* ============ Próximo pedido y regalos ============ */
+let SUB = 'lista';
+function sub(v) {
+  SUB = v;
+  for (const b of $$('#sub-ent button')) b.setAttribute('aria-selected', b.dataset.sub === v);
+  for (const d of $$('[data-subv]')) d.hidden = d.dataset.subv !== v;
+}
+const ajustes = () => ({ minimo: 2000, base: 'costo', ...(S.ajustes.find(a => a.id === 'general') || {}) });
+function porPedirMap() {
+  const pp = {};
+  for (const v of S.ventas) if (est(v) === 'Por pedir a Terramar') for (const i of items(v)) pp[i.productoId] = (pp[i.productoId] || 0) + num(i.cantidad);
+  return pp;
+}
+function addToLista(pid, n) {
+  const ex = S.lista.find(l => l.productoId === pid);
+  if (ex) commit([{ t: 'update', c: 'lista', id: ex.id, data: { cantidad: num(ex.cantidad) + n } }]);
+  else commit([{ t: 'set', c: 'lista', id: store.newId('lista'), data: { productoId: pid, cantidad: n, creado: Date.now() } }]);
+}
+function lista() {
+  const aj = ajustes(), min = num(aj.minimo), porPrecio = aj.base === 'precio';
+  if (document.activeElement?.id !== 'aj-min') $('#aj-min').value = min || '';
+  $('#aj-base').value = porPrecio ? 'precio' : 'costo';
+  const L = [...S.lista].sort((a, b) => num(a.creado) - num(b.creado));
+  const val = l => { const p = byId('productos', l.productoId); return num(porPrecio ? p?.precio : p?.costo); };
+  const total = sum(L, l => num(l.cantidad) * val(l));
+  const costo = sum(L, l => num(l.cantidad) * num(byId('productos', l.productoId)?.costo));
+  const piezas = sum(L, l => l.cantidad), falta = Math.max(0, min - total), listo = min > 0 && total >= min;
+  const w = min > 0 ? Math.min(100, total / min * 100) : 100;
+  $('#lista-meta').innerHTML = `<div class="goal"><h2>Próximo pedido a Terramar</h2>
+    <div class="big">${money(total)}</div>
+    <div class="muted small">${int(piezas)} pieza${piezas === 1 ? '' : 's'}${min > 0 ? ` · Mínimo ${money(min)}` : ''}${porPrecio ? ` · A precio de catálogo` : ''}</div>
+    ${min > 0 ? `<div class="track" role="progressbar" aria-valuemin="0" aria-valuemax="${min}" aria-valuenow="${r2(total)}"><i class="${listo ? 'ok' : ''}" style="width:${w}%"></i></div>
+    ${listo ? `<p class="ok-msg">✓ Ya alcanzaste el pedido mínimo${total - min > 0.005 ? `. Llevas ${money(total - min)} de más` : ''}. Puedes seguir agregando.</p>` : `<p>Te faltan <b class="neg">${money(falta)}</b> para llegar al pedido mínimo.</p>`}` : ''}
+    ${porPrecio && L.length ? `<p class="small muted" style="margin-top:4px">Lo que le pagarías a Terramar (a costo): <b>${money(costo)}</b></p>` : ''}</div>`;
+  const R = { h: ['Producto', 'Piezas', 'Costo c/u', 'Precio c/u', 'Subtotal'], n: [2, 3, 4] };
+  $('#t-lista').innerHTML = L.length ? tableHTML(R, L.map(l => { const p = byId('productos', l.productoId); return { id: l.id, h: [`<b>${esc(pName(l.productoId))}</b>${p?.codigo ? ` <span class="small muted">${esc(p.codigo)}</span>` : ''}`,
+    `<span class="stepper"><button class="btn sm" type="button" data-lq="${esc(l.id)}" data-d="-1" aria-label="Una pieza menos">−</button><b>${num(l.cantidad)}</b><button class="btn sm" type="button" data-lq="${esc(l.id)}" data-d="1" aria-label="Una pieza más">+</button></span>`,
+    money(p?.costo), money(p?.precio), `<b>${money(num(l.cantidad) * val(l))}</b>`] }; }), r => `<button class="btn sm del" type="button" data-lrm="${esc(r.id)}">Quitar</button>`)
+    : '<p class="empty">Tu lista está vacía. Agrega productos con el formulario o toca “Agregar lo que tengo por pedir”.</p>';
+  const nPed = S.ventas.filter(v => est(v) === 'Pedido a Terramar').length;
+  $('#lista-llego').innerHTML = L.length ? `<div style="border-top:1px solid var(--line);margin-top:14px;padding-top:6px">
+    <h3 style="margin-top:10px">¿Ya te llegó este pedido?</h3>
+    <div class="fld"><label for="ll-pag">¿Cuánto le pagaste a Terramar por este pedido? (opcional)</label><input id="ll-pag" type="number" min="0" step="0.01" inputmode="decimal" placeholder="$0.00"></div>
+    ${nPed ? `<label class="chk" for="ll-ventas"><input type="checkbox" id="ll-ventas" checked> Marcar como “Llegó” ${nPed === 1 ? 'la venta que está' : `las ${nPed} ventas que están`} en “Pedido a Terramar”</label>` : ''}
+    <div class="btns"><button class="btn pri" type="button" id="ll-ok">Ya me llegó: pasar a Compras</button><button class="btn" type="button" id="ll-copy">Copiar lista</button><button class="btn del" type="button" id="ll-clear">Vaciar lista</button></div>
+    <p class="hint">Al tocar “Ya me llegó”, cada producto se registra en <b>Compras y pagos</b> con su costo y se suma a tu inventario.</p></div>` : '';
+  const pp = porPedirMap(), faltan = Object.entries(pp).filter(([id, n]) => n - num(S.lista.find(l => l.productoId === id)?.cantidad) > 0).length;
+  $('#lista-pp-h').innerHTML = Object.keys(pp).length ? (faltan ? `Tienes <b>${faltan}</b> producto${faltan === 1 ? '' : 's'} vendido${faltan === 1 ? '' : 's'} sin stock que aún no están en la lista.` : 'Todo lo que tienes “por pedir” ya está en la lista.') : '';
+}
+function llego() {
+  const L = [...S.lista].sort((a, b) => num(a.creado) - num(b.creado)); if (!L.length) return;
+  const f = today(), nota = 'Pedido de mi lista ' + fdate(f), ops = []; let k = 0;
+  for (const l of L) {
+    const p = byId('productos', l.productoId); if (!p) continue;
+    ops.push({ t: 'set', c: 'entradas', id: store.newId('entradas'), data: { fecha: f, productoId: l.productoId, cantidad: num(l.cantidad), costo: r2(p.costo), pagado: 0, nota, creado: Date.now() + k++ } });
+  }
+  const pag = r2($('#ll-pag')?.value);
+  if (pag > 0) ops.push({ t: 'set', c: 'pagos', id: store.newId('pagos'), data: { fecha: f, monto: pag, metodo: '', nota, creado: Date.now() + k++ } });
+  if ($('#ll-ventas')?.checked) for (const v of S.ventas) if (est(v) === 'Pedido a Terramar') ops.push({ t: 'update', c: 'ventas', id: v.id, data: { entrega: 'Llegó' } });
+  for (const l of L) ops.push({ t: 'del', c: 'lista', id: l.id });
+  commit(ops); toast(`Listo: ${L.length} producto${L.length === 1 ? '' : 's'} pasaron a Compras y a tu inventario.`); sub('compras');
+}
+function regalosView() {
+  const R = S.regalos, piezas = sum(R, r => r.cantidad), valor = sum(R, r => num(r.valor) * num(r.cantidad));
+  const ym = today().slice(0, 7), mes = sum(R.filter(r => String(r.fecha).startsWith(ym)), r => num(r.valor) * num(r.cantidad));
+  const enStock = sum(R.filter(r => r.productoId), r => num(r.cantidad));
+  $('#k-regalos').innerHTML = [kpi('Piezas regaladas', int(piezas)), kpi('Valor de tus regalos', money(valor), { cls: valor > 0 ? 'good' : '', d: 'A precio de venta' }), kpi('Regalos este mes', money(mes))].join('');
+  $('#regalos-msg').innerHTML = R.length ? `<h3>¿Puedo hacer rebajas?</h3><p class="sub">Estos productos <b>no te costaron</b>. Si los vendes, aunque sea con rebaja, todo lo que cobres es ganancia. Por ejemplo, si los vendes a mitad de precio, ganarías <b>${money(valor / 2)}</b>.</p>${enStock ? `<p class="hint">Los ${int(enStock)} que son de tu lista de productos ya se sumaron a tu inventario.</p>` : ''}`
+    : '<h3>Tus regalos de Terramar</h3><p class="sub">Cuando Terramar te mande regalos con un pedido, regístralos aquí. Así sabes cuánto valen y cuánto puedes rebajar sin perder dinero.</p>';
+}
+
 /* ============ Movimientos ============ */
 function movs() {
   return [
@@ -421,9 +505,10 @@ function movs() {
     ...S.entradas.map(e => ({ ...e, _t: 'Compra a Terramar', _d: `${pName(e.productoId)} · ${num(e.cantidad)} pzas`, _m: eCosto(e), _c: 'entradas' })),
     ...S.pagos.map(p => ({ ...p, _t: 'Pago a Terramar', _d: p.metodo || '', _m: num(p.monto), _c: 'pagos' })),
     ...S.gastos.map(g => ({ ...g, _t: 'Gasto', _d: `${g.categoria}${g.campana ? ' · ' + g.campana : ''}`, _m: num(g.monto), _c: 'gastos' })),
+    ...S.regalos.map(r => ({ ...r, _t: 'Regalo', _d: `${rName(r)} · ${num(r.cantidad)} pzas (valor)`, _m: num(r.valor) * num(r.cantidad), _c: 'regalos' })),
   ].sort(ord(0));
 }
-const movPill = t => ({ Venta: 'p-warn', Abono: 'p-ok', 'Compra a Terramar': 'p-mute', 'Pago a Terramar': 'p-info', Gasto: 'p-acc' }[t]);
+const movPill = t => ({ Venta: 'p-warn', Abono: 'p-ok', 'Compra a Terramar': 'p-mute', 'Pago a Terramar': 'p-info', Gasto: 'p-acc', Regalo: 'p-ok' }[t]);
 function movList() {
   const t = ($('#q-mov').value || '').toLowerCase().trim(), ft = $('#f-mov').value;
   return movs().filter(m => (!ft || m._t === ft) && (!t || `${m._t} ${m._d} ${m.nota || ''} ${fdate(m.fecha)}`.toLowerCase().includes(t)));
@@ -627,8 +712,10 @@ const SHEETS = [
   ['Compras Terramar', 'entradas', ['id', 'fecha', 'productoId', '_producto', 'cantidad', 'costo', 'pagado', 'nota', 'creado']],
   ['Pagos Terramar', 'pagos', ['id', 'fecha', 'monto', 'metodo', 'nota', 'creado']],
   ['Gastos', 'gastos', ['id', 'fecha', 'categoria', 'campana', 'monto', 'mensajes', 'resultados', 'nota', 'creado']],
+  ['Regalos', 'regalos', ['id', 'fecha', 'productoId', '_producto', 'descripcion', 'cantidad', 'valor', 'nota', 'creado']],
+  ['Próximo pedido', 'lista', ['id', 'productoId', '_producto', 'cantidad', 'creado']],
 ];
-const NUMK = new Set(['costo', 'precio', 'minimo', 'monto', 'cantidad', 'pagado', 'mensajes', 'resultados', 'creado']);
+const NUMK = new Set(['costo', 'precio', 'minimo', 'monto', 'cantidad', 'pagado', 'mensajes', 'resultados', 'valor', 'creado']);
 let xlsxP;
 function loadXLSX() {
   return xlsxP || (xlsxP = new Promise((ok, ko) => { const s = document.createElement('script'); s.src = 'https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js'; s.onload = () => ok(window.XLSX); s.onerror = () => { xlsxP = null; ko(new Error('xlsx')); }; document.head.appendChild(s); }));
@@ -674,7 +761,7 @@ async function importXLSX(file) {
         if (!o.creado) o.creado = Date.now() + n;
         ops.push({ t: 'set', c, id: String(r.id || '').trim() || store.newId(c), data: o, merge: true }); n++;
       }
-      if (n) counts.push(`${n} ${F[c].many}`);
+      if (n) counts.push(`${n} ${F[c]?.many || 'en ' + name}`);
     }
     if (!ops.length) { msg.textContent = 'El archivo no tiene hojas que yo reconozca. Usa un respaldo descargado de esta página.'; return; }
     pendingImport = ops;
@@ -704,7 +791,7 @@ function render() {
   raf = setTimeout(() => {
     compute(); fillSelects();
     for (const c in F) table(c);
-    resumen(); pedidos(); terramar(); movTable(); hints(); backupInfo();
+    resumen(); pedidos(); terramar(); lista(); regalosView(); movTable(); hints(); backupInfo();
     if (cur === 'metricas') metricas();
   });
 }
@@ -713,6 +800,23 @@ function wire() {
   document.addEventListener('click', e => {
     const b = e.target.closest('button'); if (!b) return;
     if (b.dataset.t) return go(b.dataset.t);
+    if (b.dataset.sub) return sub(b.dataset.sub);
+    if (b.dataset.lq) { const l = byId('lista', b.dataset.lq); if (!l) return; const n = num(l.cantidad) + num(b.dataset.d); commit([n > 0 ? { t: 'update', c: 'lista', id: l.id, data: { cantidad: n } } : { t: 'del', c: 'lista', id: l.id }]); return; }
+    if (b.dataset.lrm) { commit([{ t: 'del', c: 'lista', id: b.dataset.lrm }]); toast('Producto quitado de la lista.'); return; }
+    if ('addporpedir' in b.dataset) {
+      const pp = porPedirMap(); let n = 0;
+      for (const [id, q] of Object.entries(pp)) { const ya = num(S.lista.find(l => l.productoId === id)?.cantidad), d = q - ya; if (d > 0) { addToLista(id, d); n++; } }
+      if (b.closest('#v-pedidos')) { go('entradas'); sub('lista'); }
+      toast(n ? `Agregué ${n} producto${n === 1 ? '' : 's'} a tu próximo pedido.` : Object.keys(pp).length ? 'Todo lo que tienes por pedir ya está en tu lista.' : 'No tienes ventas “Por pedir a Terramar”.'); return;
+    }
+    if (b.id === 'll-ok') { if (!b.dataset.sure) { b.dataset.sure = 1; b.textContent = '¿Seguro? Toca otra vez'; setTimeout(() => { if (b.isConnected) { delete b.dataset.sure; b.textContent = 'Ya me llegó: pasar a Compras'; } }, 4000); return; } return llego(); }
+    if (b.id === 'll-clear') { if (!b.dataset.sure) { b.dataset.sure = 1; b.textContent = '¿Vaciar? Toca otra vez'; setTimeout(() => { if (b.isConnected) { delete b.dataset.sure; b.textContent = 'Vaciar lista'; } }, 4000); return; } commit(S.lista.map(l => ({ t: 'del', c: 'lista', id: l.id }))); toast('Lista vaciada.'); return; }
+    if (b.id === 'll-copy') {
+      const aj = ajustes(), L = [...S.lista].sort((a, c) => num(a.creado) - num(c.creado));
+      const tot = sum(L, l => num(l.cantidad) * num(aj.base === 'precio' ? byId('productos', l.productoId)?.precio : byId('productos', l.productoId)?.costo));
+      const txt = 'Pedido Terramar ' + fdate(today()) + '\n' + L.map(l => { const p = byId('productos', l.productoId); return `${p?.codigo ? p.codigo + ' ' : ''}${pName(l.productoId)}: ${num(l.cantidad)}`; }).join('\n') + `\nTotal: ${money(tot)}`;
+      navigator.clipboard?.writeText(txt).then(() => toast('Lista copiada. Pégala en WhatsApp o donde hagas tu pedido.'), () => toast('No se pudo copiar.', 'warn')); return;
+    }
     if (b.id === 'dlg-x') return $('#dlg').close();
     if (b.dataset.additem) { $('#' + b.dataset.additem).insertAdjacentHTML('beforeend', itemRow()); hints(); return; }
     if ('rmitem' in b.dataset) { const box = b.closest('.items'); b.closest('.it').remove(); if (!box.children.length) box.innerHTML = itemRow(); autoEntrega(); hints(); return; }
@@ -745,6 +849,12 @@ function wire() {
   document.addEventListener('submit', e => {
     e.preventDefault(); const fm = e.target;
     if (fm.id === 'f-login') return doLogin();
+    if (fm.id === 'f-lista') {
+      const pid = fm.elements.productoId.value, n = Math.round(num(fm.elements.cantidad.value));
+      if (!pid) { toast('Elige un producto.', 'warn'); return; }
+      if (n <= 0) { toast('Las piezas deben ser 1 o más.', 'warn'); return; }
+      addToLista(pid, n); toast(`${pName(pid)} agregado a la lista.`); fm.elements.cantidad.value = 1; fm.elements.productoId.value = ''; return;
+    }
     if (fm.id === 'f-quick') { const c = fm.dataset.c, id = save(c, fm, { quick: true }); if (id) { $('#dlg').close(); setTimeout(() => { fillSelects(); const t = $('#' + fm.dataset.target); if (t) { t.value = id; t.dispatchEvent(new Event('change', { bubbles: true })); } }, 60); } return; }
     const c = fm.id.slice(2); if (F[c]) save(c, fm);
   });
@@ -755,11 +865,13 @@ function wire() {
     if (el.id === 'm-a' || el.id === 'm-b') { M.pre = 'custom'; $('#m-pre').value = 'custom'; M[el.id.slice(2)] = el.value; return metricas(); }
     if (el.id === 'm-camp') { M.camp = el.value; return metricas(); }
     if (el.id === 'm-grp') { M.grp = el.value; return metricas(); }
+    if (el.id === 'aj-min' || el.id === 'aj-base') { commit([{ t: 'set', c: 'ajustes', id: 'general', data: { minimo: r2($('#aj-min').value), base: $('#aj-base').value }, merge: true }]); toast('Pedido mínimo guardado.'); return; }
     if (el.id === 'f-ped') return pedidos();
     if (el.id === 'f-mov') return movTable();
     if (!fm) return;
     if (el.classList.contains('it-p')) { const p = byId('productos', el.value), r = el.closest('.it'); if (p) $('.it-r', r).value = num(p.precio) || ''; autoEntrega(); }
     if (fm.id === 'f-entradas' && el.name === 'productoId' && !editing.entradas) { const p = byId('productos', el.value); if (p) fm.elements.costo.value = num(p.costo) || ''; }
+    if (fm.id === 'f-regalos' && el.name === 'productoId') { const p = byId('productos', el.value); if (p) fm.elements.valor.value = num(p.precio) || ''; }
     if (fm.id === 'f-ventas' && el.name === 'entrega') fm.dataset.touched = '1';
     const c = fm.id.slice(2); if (F[c]) applyShow(c, fm);
     hints();
@@ -805,7 +917,7 @@ function onUser(u) {
   $('#login').hidden = true; $('#app').hidden = false; $('#l-pass').value = '';
   $('#who').textContent = u.email; $('#who2').textContent = u.email;
   for (const c in F) resetForm(c);
-  show();
+  sub(SUB); show();
   for (const c of COLS) store.listen(c, (docs) => { S[c] = docs; render(); }, err => { console.error(err); toast('No se pudieron leer tus datos. Cierra sesión y vuelve a entrar.', 'warn'); });
 }
 

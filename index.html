@@ -90,8 +90,9 @@
         <div class="btns" id="porpedir-b"></div></div>
       <div class="card"><h3>Cómo funciona</h3><ol class="steps">
         <li>Registra la venta en <b>Ventas</b>. Si no tienes stock, queda como <b>Por pedir a Terramar</b>.</li>
+        <li>Toca <b>Pasar a mi próximo pedido</b> para armar tu lista en <b>Compras a Terramar</b> y ver si ya llegas al mínimo.</li>
         <li>Cuando hagas tu pedido, toca <b>Ya hice el pedido</b> o avanza cada venta con su botón.</li>
-        <li>Cuando llegue, regístralo en <b>Compras a Terramar</b> y marca la venta como <b>Llegó</b>.</li>
+        <li>Cuando llegue, toca <b>Ya me llegó</b> en tu lista: pasa solo a Compras y las ventas se marcan como <b>Llegó</b>.</li>
         <li>Al marcar <b>Entregado</b>, sale de esta lista.</li></ol></div>
     </div>
     <div class="card" style="margin-top:18px"><div class="tools">
@@ -105,9 +106,42 @@
 
   <section id="v-entradas">
     <div class="kpis" id="k-terramar" style="margin-bottom:18px"></div>
-    <div class="grid">
+    <div class="seg" id="sub-ent" role="tablist">
+      <button type="button" data-sub="lista">Próximo pedido</button>
+      <button type="button" data-sub="compras">Compras y pagos</button>
+      <button type="button" data-sub="regalos">Regalos</button>
+    </div>
+
+    <div data-subv="lista" class="grid">
+      <div class="col">
+        <div class="card"><h2>Agregar al próximo pedido</h2>
+          <form id="f-lista" novalidate>
+            <div class="fld"><label for="lista-prod">Producto</label><div class="selrow"><select id="lista-prod" name="productoId"></select><button class="btn sm" type="button" data-quick="productos" data-target="lista-prod">+ Nuevo</button></div></div>
+            <div class="fld"><label for="lista-cant">Piezas</label><input id="lista-cant" name="cantidad" type="number" min="1" step="1" inputmode="numeric" value="1"></div>
+            <div class="btns"><button class="btn pri" type="submit">Agregar a la lista</button></div>
+          </form>
+          <div class="btns" style="margin-top:10px"><button class="btn" type="button" data-addporpedir>Agregar lo que tengo “por pedir”</button></div>
+          <p class="hint" id="lista-pp-h"></p>
+        </div>
+        <div class="card"><h3>Pedido mínimo</h3>
+          <div class="fld"><label for="aj-min">Monto mínimo del pedido</label><input id="aj-min" type="number" min="0" step="1" inputmode="decimal"></div>
+          <div class="fld"><label for="aj-base">El mínimo se cuenta con</label><select id="aj-base"><option value="costo">Lo que me cobra Terramar (costo)</option><option value="precio">Precio de catálogo (precio de venta)</option></select></div>
+          <p class="hint">Se guarda solo al cambiarlo.</p>
+        </div>
+      </div>
+      <div class="col">
+        <div class="card"><div id="lista-meta"></div><div id="t-lista" class="scroll"></div><div id="lista-llego"></div></div>
+      </div>
+    </div>
+
+    <div data-subv="compras" class="grid">
       <div class="col"><div data-form="entradas"></div><div data-form="pagos"></div></div>
       <div class="col"><div data-table="entradas"></div><div data-table="pagos"></div></div>
+    </div>
+
+    <div data-subv="regalos" class="grid">
+      <div data-form="regalos"></div>
+      <div class="col"><div class="kpis" id="k-regalos"></div><div class="card" id="regalos-msg"></div><div data-table="regalos"></div></div>
     </div>
   </section>
 
@@ -148,7 +182,7 @@
 
   <section id="v-movimientos"><div class="card"><div class="tools">
     <input type="search" placeholder="Buscar movimiento…" id="q-mov" aria-label="Buscar movimiento">
-    <select id="f-mov" aria-label="Tipo de movimiento"><option value="">Todos</option><option>Venta</option><option>Abono</option><option>Compra a Terramar</option><option>Pago a Terramar</option><option>Gasto</option></select>
+    <select id="f-mov" aria-label="Tipo de movimiento"><option value="">Todos</option><option>Venta</option><option>Abono</option><option>Compra a Terramar</option><option>Pago a Terramar</option><option>Regalo</option><option>Gasto</option></select>
     <button class="btn" type="button" id="csv-mov">Descargar CSV</button>
   </div><div id="t-movimientos"></div></div></section>
 

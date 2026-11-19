@@ -1,6 +1,8 @@
 # Mis ventas Terramar
 
-Página privada para llevar el control de ventas por catálogo: productos, clientes, ventas (con varios productos), abonos, pedidos, compras y pagos a Terramar, gastos (Meta Ads y otros), métricas y respaldos en Excel.
+Página privada para llevar el control de ventas por catálogo: productos, clientes, ventas (con varios productos), abonos, pedidos, compras y pagos a Terramar, lista del próximo pedido (con pedido mínimo), regalos de Terramar, gastos (Meta Ads y otros), métricas y respaldos en Excel.
+
+Colecciones en Firestore: `productos`, `clientes`, `ventas`, `abonos`, `entradas` (compras), `pagos`, `gastos`, `regalos`, `lista` (próximo pedido) y `ajustes/general` (pedido mínimo).
 
 - **Dirección:** https://yackaylin87-design.github.io
 - **Datos:** Firebase Firestore (proyecto `control-ventas-terramar`), guardados bajo `users/{uid}/...`. Solo el usuario que inició sesión puede leerlos y escribirlos.

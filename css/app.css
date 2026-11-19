@@ -132,6 +132,22 @@ tr.click{cursor:pointer}
 .chart{position:relative;height:280px}
 .chart.tall{height:auto}
 
+/* Sub-pestañas, lista de pedido */
+.seg{display:flex;gap:4px;background:var(--soft);border:1px solid var(--line);border-radius:10px;padding:4px;margin-bottom:18px;overflow-x:auto;scrollbar-width:none}
+.seg button{flex:1 0 auto;border:0;background:none;color:var(--mute);font:500 15px Geist,system-ui,sans-serif;padding:9px 14px;border-radius:7px;min-height:42px;cursor:pointer;white-space:nowrap}
+.seg button[aria-selected=true]{background:var(--panel);color:var(--ink);box-shadow:0 1px 3px rgba(0,0,0,.12)}
+.goal{margin-bottom:14px}
+.goal .big{font-size:clamp(28px,4vw,38px);font-weight:600;font-variant-numeric:tabular-nums;letter-spacing:-.01em;line-height:1.1}
+.goal .track{height:14px;background:var(--soft);border-radius:7px;overflow:hidden;margin:10px 0 8px}
+.goal .track i{display:block;height:100%;background:var(--brand);border-radius:0 7px 7px 0;transition:width .4s ease}
+.goal .track i.ok{background:var(--ok)}
+.goal .ok-msg{color:var(--ok);font-weight:600}
+.stepper{display:inline-flex;align-items:center;gap:6px}
+.stepper .btn{min-height:34px;min-width:34px;padding:2px 8px}
+.stepper b{min-width:2ch;text-align:center;font-variant-numeric:tabular-nums}
+.chk{display:flex;gap:10px;align-items:flex-start;font-size:14px;color:var(--mute);margin-top:12px;cursor:pointer}
+.chk input{width:20px;height:20px;min-height:0;margin:1px 0 0;flex:none;accent-color:var(--brand)}
+
 /* Métricas */
 .filters{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:0 12px;padding-top:6px}
 .filters .fld label{margin-top:8px}
@@ -174,6 +190,12 @@ dialog::backdrop{background:rgba(0,0,0,.45)}
   .stack td:empty{display:none}
   .chart{height:240px}
   .who span{display:none}
+  .kpis{grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
+  .kpi{padding:12px}
+  .kpi small{font-size:13px}
+  .kpi strong{font-size:20px;white-space:normal;overflow-wrap:anywhere}
+  .seg button{font-size:14px;padding:8px 10px}
+  [data-subv="lista"]>.col:last-child{order:-1}
 }
 @media (prefers-reduced-motion:no-preference){.bar,.hb-bar{transition:width .4s ease}}
 @media print{header.top,.btn,.tools{display:none!important}body{background:#fff}}
