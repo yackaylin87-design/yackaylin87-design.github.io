@@ -106,6 +106,22 @@ tr.click{cursor:pointer}
 .empty{color:var(--mute);padding:20px 4px;text-align:center;margin:0}
 .neg{color:var(--acc);font-weight:600}
 .muted{color:var(--mute)}
+.pos{color:var(--ok)}
+/* Pedidos recibidos: un renglón por pedido que se abre para ver sus productos */
+.ped{border:1px solid var(--line);border-radius:12px;margin-bottom:10px;background:var(--panel)}
+.ped>summary{list-style:none;cursor:pointer;display:grid;grid-template-columns:1fr auto;align-items:start;gap:8px 14px;padding:12px 14px}
+.ped>summary::-webkit-details-marker{display:none}
+.ped-h{display:flex;flex-direction:column}
+.ped-n{grid-column:1/-1}
+.ped-h small{font-size:13px}
+.ped-n{display:flex;flex-wrap:wrap;gap:6px 18px}
+.ped-n>span{display:flex;flex-direction:column;font-variant-numeric:tabular-nums}
+.ped-n small{font-size:12px;color:var(--mute)}
+.ped-v{grid-column:2;grid-row:1;font-size:13px;color:var(--brand);white-space:nowrap}
+.ped-v::after{content:" ▾"}
+.ped[open] .ped-v::after{content:" ▴"}
+.ped[open]>summary{border-bottom:1px solid var(--line)}
+.ped-t{padding:0 14px 8px;overflow-x:auto}
 .small{font-size:13px}
 
 /* Cifras grandes */

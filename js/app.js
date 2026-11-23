@@ -181,7 +181,7 @@ function buildForms() {
       <div class="hint" id="hint-${c}"></div>
       <div class="btns"><button class="btn pri" type="submit" id="b-${c}">Guardar</button><button class="btn" type="button" data-cancel="${c}" hidden>Cancelar</button></div></form></div>`;
     const t = $(`[data-table="${c}"]`);
-    if (t) t.innerHTML = `<div class="card">${c === 'pagos' ? '<h3>Pagos a Terramar</h3>' : c === 'entradas' ? '<h3>Mercancía recibida</h3>' : ''}<div class="tools"><input type="search" placeholder="Buscar…" data-q="${c}" aria-label="Buscar ${F[c].many}"><button class="btn" type="button" data-csv="${c}">Descargar CSV</button></div><div id="t-${c}" class="scroll"></div></div>`;
+    if (t) t.innerHTML = `<div class="card">${c === 'pagos' ? '<h3>Pagos a Terramar</h3>' : c === 'entradas' ? '<h3>Pedidos recibidos</h3>' : ''}<div class="tools"><input type="search" placeholder="Buscar…" data-q="${c}" aria-label="Buscar ${F[c].many}"><button class="btn" type="button" data-csv="${c}">Descargar CSV</button></div><div id="t-${c}" class="scroll"></div></div>`;
   }
 }
 
@@ -279,7 +279,7 @@ function save(c, fm, { quick = false } = {}) {
     const its = o.items;
     if (!its.length) { toast('Agrega al menos un producto al pedido.', 'warn'); return null; }
     if (its.some(i => i.cantidad <= 0)) { toast('Revisa las piezas: deben ser 1 o más.', 'warn'); return null; }
-    const now = Date.now(), ops = its.map((i, k) => ({ t: 'set', c: 'entradas', id: store.newId('entradas'), data: { fecha: o.fecha, productoId: i.productoId, cantidad: i.cantidad, costo: i.precio, pagado: 0, nota: o.nota, creado: now + k } }));
+    const now = Date.now(), ops = its.map((i, k) => ({ t: 'set', c: 'entradas', id: store.newId('entradas'), data: { fecha: o.fecha, productoId: i.productoId, cantidad: i.cantidad, costo: i.precio, precioCat: i.catalogo || r2(byId('productos', i.productoId)?.precio), pagado: 0, nota: o.nota, creado: now + k } }));
     // Precios nuevos del catálogo: se actualiza el producto (precio y costo) para las siguientes ventas y pedidos.
     // Lo ya registrado no cambia porque cada compra y cada venta guarda su propio precio.
     const upd = {};
@@ -414,7 +414,35 @@ function rows(c) {
 function tableHTML(R, list, act) {
   return `<table class="stack"><thead><tr>${R.h.map((h, i) => `<th class="${R.n.includes(i) ? 'n' : ''}">${h}</th>`).join('')}${act ? '<th></th>' : ''}</tr></thead><tbody>${list.map(r => `<tr>${r.h.map((h, i) => `<td class="${R.n.includes(i) ? 'n' : ''}" data-l="${esc(R.h[i])}">${h ?? ''}</td>`).join('')}${act ? `<td class="a">${act(r)}</td>` : ''}</tr>`).join('')}</tbody></table>`;
 }
+// Mercancía recibida agrupada por pedido (mismo "Nombre del pedido"; si no tiene, por fecha). Se abre para ver los productos.
+const openG = new Set();
+const eCat = e => num(e.cantidad) * num(e.precioCat ?? byId('productos', e.productoId)?.precio);
+function entradasTable() {
+  const el = $('#t-entradas'); if (!el) return;
+  const R = rows('entradas'), t = (q.entradas || '').toLowerCase().trim();
+  if (!R.r.length) { el.innerHTML = '<p class="empty">Todavía no hay compras. Usa el formulario para registrar tu primer pedido.</p>'; return; }
+  const E = Object.fromEntries(S.entradas.map(e => [e.id, e])), G = new Map();
+  for (const r of R.r) {
+    const e = E[r.id], nm = String(e.nota || '').trim(), k = nm ? 'n:' + nm.toLowerCase() : 'f:' + e.fecha;
+    if (!G.has(k)) G.set(k, { k, name: nm || 'Compra del ' + fdate(e.fecha), rows: [], E: [] });
+    G.get(k).rows.push(r); G.get(k).E.push(e);
+  }
+  const R2 = { h: R.h.slice(0, 6), n: R.n };
+  const html = [...G.values()].map(g => {
+    const match = !t || g.name.toLowerCase().includes(t), list = match ? g.rows : g.rows.filter(r => r.v.join(' ').toLowerCase().includes(t));
+    if (!list.length) return '';
+    const fs = [...new Set(g.E.map(e => e.fecha))].sort(), fe = fs.length > 1 ? `${fdate(fs[0])} – ${fdate(fs[fs.length - 1])}` : fdate(fs[0]);
+    const np = new Set(g.E.map(e => e.productoId)).size, pz = sum(g.E, e => e.cantidad), co = sum(g.E, eCosto), ca = sum(g.E, eCat);
+    return `<details class="ped" data-g="${esc(g.k)}"${t || openG.has(g.k) ? ' open' : ''}><summary>
+      <span class="ped-h"><b>${esc(g.name)}</b><small class="muted">${fe} · ${np} producto${np === 1 ? '' : 's'} · ${int(pz)} pieza${pz === 1 ? '' : 's'}</small></span>
+      <span class="ped-n"><span><small>Te costó</small><b>${money(co)}</b></span><span><small>A precio de catálogo</small><b>${money(ca)}</b></span><span><small>Ganarías</small><b class="pos">${money(ca - co)}</b></span></span>
+      <span class="ped-v" aria-hidden="true">Ver productos</span></summary>
+      <div class="ped-t">${tableHTML(R2, list.map(r => ({ ...r, h: r.h.slice(0, 6) })), r => acts('entradas', r.id, ''))}</div></details>`;
+  }).join('');
+  el.innerHTML = html || `<p class="empty">Nada coincide con “${esc(q.entradas)}”.</p>`;
+}
 function table(c) {
+  if (c === 'entradas') return entradasTable();
   const el = $('#t-' + c); if (!el) return;
   const R = rows(c), t = (q[c] || '').toLowerCase().trim(), list = R.r.filter(r => !t || r.v.join(' ').toLowerCase().includes(t));
   el.innerHTML = !R.r.length ? `<p class="empty">Todavía no hay ${F[c].many}. Usa el formulario para agregar el primero.</p>`
@@ -546,7 +574,7 @@ function llego() {
   const f = today(), nota = 'Pedido de mi lista ' + fdate(f), ops = []; let k = 0;
   for (const l of L) {
     const p = byId('productos', l.productoId); if (!p) continue;
-    ops.push({ t: 'set', c: 'entradas', id: store.newId('entradas'), data: { fecha: f, productoId: l.productoId, cantidad: num(l.cantidad), costo: r2(p.costo), pagado: 0, nota, creado: Date.now() + k++ } });
+    ops.push({ t: 'set', c: 'entradas', id: store.newId('entradas'), data: { fecha: f, productoId: l.productoId, cantidad: num(l.cantidad), costo: r2(p.costo), precioCat: r2(p.precio), pagado: 0, nota, creado: Date.now() + k++ } });
   }
   const pag = r2($('#ll-pag')?.value);
   if (pag > 0) ops.push({ t: 'set', c: 'pagos', id: store.newId('pagos'), data: { fecha: f, monto: pag, metodo: '', nota, creado: Date.now() + k++ } });
@@ -775,13 +803,13 @@ const SHEETS = [
   ['Clientes', 'clientes', ['id', 'nombre', 'telefono', 'nota', 'creado']],
   ['Ventas', 'ventas', ['id', 'fecha', 'clienteId', '_cliente', 'origen', 'campana', 'entrega', 'nota', '_total', 'items_json', 'creado']],
   ['Abonos', 'abonos', ['id', 'fecha', 'clienteId', '_cliente', 'monto', 'metodo', 'nota', 'ventaId', 'creado']],
-  ['Compras Terramar', 'entradas', ['id', 'fecha', 'productoId', '_producto', 'cantidad', 'costo', 'pagado', 'nota', 'creado']],
+  ['Compras Terramar', 'entradas', ['id', 'fecha', 'productoId', '_producto', 'cantidad', 'costo', 'precioCat', 'pagado', 'nota', 'creado']],
   ['Pagos Terramar', 'pagos', ['id', 'fecha', 'monto', 'metodo', 'nota', 'creado']],
   ['Gastos', 'gastos', ['id', 'fecha', 'categoria', 'campana', 'monto', 'mensajes', 'resultados', 'nota', 'creado']],
   ['Regalos', 'regalos', ['id', 'fecha', 'productoId', '_producto', 'descripcion', 'cantidad', 'valor', 'nota', 'creado']],
   ['Próximo pedido', 'lista', ['id', 'productoId', '_producto', 'cantidad', 'creado']],
 ];
-const NUMK = new Set(['costo', 'precio', 'minimo', 'monto', 'cantidad', 'pagado', 'mensajes', 'resultados', 'valor', 'creado']);
+const NUMK = new Set(['costo', 'precio', 'precioCat','minimo', 'monto', 'cantidad', 'pagado', 'mensajes', 'resultados', 'valor', 'creado']);
 let xlsxP;
 function loadXLSX() {
   return xlsxP || (xlsxP = new Promise((ok, ko) => { const s = document.createElement('script'); s.src = 'https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js'; s.onload = () => ok(window.XLSX); s.onerror = () => { xlsxP = null; ko(new Error('xlsx')); }; document.head.appendChild(s); }));
@@ -958,6 +986,8 @@ function wire() {
     }
     if (el.form) { if (el.classList.contains('it-q')) autoEntrega(); const c = el.form.id.slice(2); if (F[c]) applyShow(c, el.form); hints(); }
   });
+  // Recordar qué pedidos dejaste abiertos (para que no se cierren al guardar algo).
+  document.addEventListener('toggle', e => { const d = e.target; if (d.classList?.contains('ped') && !q.entradas) d.open ? openG.add(d.dataset.g) : openG.delete(d.dataset.g); }, true);
   // En el recuadro del pedido, "Enter" agrega el producto a la lista en vez de guardar todo el pedido.
   document.addEventListener('keydown', e => {
     const box = e.target.closest?.('.ad');
