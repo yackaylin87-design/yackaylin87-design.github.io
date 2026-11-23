@@ -113,12 +113,15 @@ const F = {
     { k: 'precio', l: 'Precio de catálogo (precio de venta)', t: 'money', req: 1 },
     { k: 'costo', l: 'Costo (lo que te cobra Terramar)', t: 'money', help: 'Se calcula solo: la mitad del precio de catálogo + 16%. Puedes cambiarlo si es otro.' },
     { k: 'minimo', l: 'Avisarme cuando queden (piezas)', t: 'int', help: 'Déjalo vacío si no quieres aviso de stock bajo.' }] },
-  entradas: { title: 'Registrar mercancía que llegó', one: 'compra', many: 'compras', f: [
-    fecha, { k: 'productoId', l: 'Producto', t: 'sel', src: 'productos', req: 1, quick: 1 },
-    { k: 'cantidad', l: 'Piezas que llegaron', t: 'int', req: 1 },
-    { k: 'costo', l: 'Costo por pieza', t: 'money' },
-    { k: 'pagado', l: 'Ya le pagué a Terramar por esto', t: 'money', help: 'Si pagas el pedido completo aparte, usa “Pago a Terramar”.' },
-    { k: 'nota', l: 'Nota (número de pedido…)', t: 'text' }] },
+  entradas: { title: 'Registrar pedido que llegó', one: 'compra', many: 'compras', saveLbl: 'Guardar pedido', f: [
+    fecha,
+    { k: 'nota', l: 'Nombre del pedido', t: 'text', ph: 'Ej. Primer pedido', help: 'Se pone en todos los productos de este pedido para que sepas que van juntos.' },
+    { k: 'items', l: 'Productos que te llegaron', t: 'items', kind: 'compra', onlyNew: 1 },
+    { k: 'productoId', l: 'Producto', t: 'sel', src: 'productos', req: 1, quick: 1, onlyEdit: 1 },
+    { k: 'cantidad', l: 'Piezas que llegaron', t: 'int', req: 1, onlyEdit: 1 },
+    { k: 'costo', l: 'Costo por pieza', t: 'money', onlyEdit: 1 },
+    { k: 'pagado', l: 'Ya le pagué a Terramar por esto', t: 'money', onlyEdit: 1, help: 'Si pagas el pedido completo aparte, usa “Pago a Terramar”.' },
+    { k: 'pagoPedido', l: '¿Cuánto ya pagaste de este pedido?', t: 'money', onlyNew: 1, help: 'Déjalo vacío si todavía no lo pagas. Si pones algo, se registra como un pago a Terramar.' }] },
   pagos: { title: 'Pago a Terramar', one: 'pago', many: 'pagos', f: [
     fecha, { k: 'monto', l: 'Monto pagado', t: 'money', req: 1 },
     { k: 'metodo', l: 'Método', t: 'opt', opts: METODOS }, nota] },
@@ -141,7 +144,7 @@ function fieldHTML(p, f) {
   const id = `${p}-${f.k}`; let h;
   if (f.t === 'sel') h = `<div class="selrow"><select id="${id}" name="${f.k}"></select>${f.quick ? `<button class="btn sm" type="button" data-quick="${f.src}" data-target="${id}">+ Nuevo</button>` : ''}</div>`;
   else if (f.t === 'opt') h = `<select id="${id}" name="${f.k}">${f.opts.map(o => `<option>${o}</option>`).join('')}</select>`;
-  else if (f.t === 'items') return `<div class="fld" data-k="items"><span class="lbl">${f.l}</span><div class="items" id="${id}"></div><div class="btns" style="margin-top:8px"><button class="btn sm" type="button" data-additem="${id}">+ Agregar otro producto</button></div></div>`;
+  else if (f.t === 'items') return `<div class="fld" data-k="items"><span class="lbl">${f.l}</span><div class="items" id="${id}" data-kind="${f.kind || 'venta'}"></div><div class="btns" style="margin-top:8px"><button class="btn sm" type="button" data-additem="${id}">+ Agregar otro producto</button>${f.kind === 'compra' ? `<button class="btn sm" type="button" data-quickrow="${id}">+ Producto nuevo</button>` : ''}</div></div>`;
   else {
     const type = f.t === 'date' ? 'date' : f.t === 'tel' ? 'tel' : (f.t === 'money' || f.t === 'int') ? 'number' : 'text';
     const extra = f.t === 'money' ? ' min="0" step="0.01" inputmode="decimal" placeholder="$0.00"' : f.t === 'int' ? ' min="0" step="1" inputmode="numeric"' : f.t === 'list' ? ` list="dl-${f.list}" autocomplete="off"` : '';
@@ -156,6 +159,7 @@ function applyShow(c, fm) {
     const box = fm.querySelector(`[data-k="${f.k}"]`); if (!box) continue;
     let vis = f.show ? f.show(o) : true;
     if (f.onlyNew && editing[c] && fm.id === 'f-' + c) vis = false;
+    if (f.onlyEdit && !(editing[c] && fm.id === 'f-' + c)) vis = false;
     box.hidden = !vis;
   }
 }
@@ -176,11 +180,13 @@ function prodOptions(sel) {
   return `<option value="">${list.length ? 'Elegir producto…' : 'Primero agrega productos'}</option>` +
     list.map(p => `<option value="${esc(p.id)}"${p.id === sel ? ' selected' : ''}>${esc(p.nombre)}${p.codigo ? ' · ' + esc(p.codigo) : ''}</option>`).join('');
 }
-function itemRow(it = {}) {
+let rowN = 0;
+function itemRow(it = {}, kind = 'venta') {
+  const compra = kind === 'compra';
   return `<div class="it" data-pid="${esc(it.productoId || '')}" data-costo="${it.costo ?? ''}">
-    <select class="it-p" aria-label="Producto">${prodOptions(it.productoId)}</select>
-    <label>Cantidad<input class="it-q" type="number" min="1" step="1" inputmode="numeric" value="${it.cantidad || 1}"></label>
-    <label>Precio c/u<input class="it-r" type="number" min="0" step="0.01" inputmode="decimal" value="${it.precio ?? ''}" placeholder="$0.00"></label>
+    <select class="it-p" id="itp-${++rowN}" aria-label="Producto">${prodOptions(it.productoId)}</select>
+    <label>${compra ? 'Piezas' : 'Cantidad'}<input class="it-q" type="number" min="1" step="1" inputmode="numeric" value="${it.cantidad || 1}"></label>
+    <label>${compra ? 'Costo c/u' : 'Precio c/u'}<input class="it-r" type="number" min="0" step="0.01" inputmode="decimal" value="${(compra ? it.costo : it.precio) ?? ''}" placeholder="$0.00"></label>
     <button class="btn sm del it-x" type="button" data-rmitem aria-label="Quitar producto">✕</button>
     <div class="it-sub"></div></div>`;
 }
@@ -196,8 +202,8 @@ function resetForm(c) {
   const fm = $('#f-' + c); if (!fm) return;
   fm.reset(); editing[c] = null; fm.dataset.touched = '';
   for (const f of F[c].f) if (f.t === 'date') fm.elements[f.k].value = today();
-  if (c === 'ventas') $('#ventas-items').innerHTML = itemRow();
-  $('#h-' + c).textContent = F[c].title; $('#b-' + c).textContent = 'Guardar';
+  const fi = F[c].f.find(f => f.t === 'items'); if (fi) $(`#${c}-items`).innerHTML = itemRow({}, fi.kind);
+  $('#h-' + c).textContent = F[c].title; $('#b-' + c).textContent = F[c].saveLbl || 'Guardar';
   fm.querySelector('[data-cancel]').hidden = true;
   applyShow(c, fm); hints();
 }
@@ -208,7 +214,7 @@ function startEdit(c, id) {
   const fm = $('#f-' + c); editing[c] = id;
   for (const f of F[c].f) {
     if (f.onlyNew) continue;
-    if (f.t === 'items') { $('#ventas-items').innerHTML = (items(x).length ? items(x) : [{}]).map(itemRow).join(''); continue; }
+    if (f.t === 'items') { $(`#${c}-items`).innerHTML = (items(x).length ? items(x) : [{}]).map(i => itemRow(i, f.kind)).join(''); continue; }
     const el = fm.elements[f.k]; el.value = x[f.k] ?? (f.t === 'opt' ? f.opts[0] : '');
     if ((f.t === 'money' || f.t === 'int') && !num(x[f.k]) && !f.req) el.value = '';
   }
@@ -233,8 +239,22 @@ function readForm(c, fm) {
 
 function save(c, fm, { quick = false } = {}) {
   const o = readForm(c, fm);
-  const bad = F[c].f.find(f => f.req && (f.t === 'money' || f.t === 'int' ? o[f.k] <= 0 : !o[f.k]));
+  const isEdit = !quick && !!editing[c];
+  const bad = F[c].f.find(f => f.req && !(f.onlyEdit && !isEdit) && !(f.onlyNew && isEdit) && (f.t === 'money' || f.t === 'int' ? o[f.k] <= 0 : !o[f.k]));
   if (bad) { toast(`Falta: ${bad.l}.`, 'warn'); fm.elements[bad.k]?.focus(); return null; }
+  if (c === 'entradas' && !isEdit) {
+    // Un pedido con varios productos: se guarda una compra por producto, todas con la misma fecha y nombre de pedido.
+    const its = o.items;
+    if (!its.length) { toast('Agrega al menos un producto al pedido.', 'warn'); return null; }
+    if (its.some(i => i.cantidad <= 0)) { toast('Revisa las piezas: deben ser 1 o más.', 'warn'); return null; }
+    const now = Date.now(), ops = its.map((i, k) => ({ t: 'set', c: 'entradas', id: store.newId('entradas'), data: { fecha: o.fecha, productoId: i.productoId, cantidad: i.cantidad, costo: i.precio, pagado: 0, nota: o.nota, creado: now + k } }));
+    if (o.pagoPedido > 0) ops.push({ t: 'set', c: 'pagos', id: store.newId('pagos'), data: { fecha: o.fecha, monto: o.pagoPedido, metodo: 'Transferencia', nota: 'Pago de ' + (o.nota || 'pedido del ' + fdate(o.fecha)), creado: now + its.length } });
+    commit(ops);
+    const pz = sum(its, i => i.cantidad);
+    toast(`Pedido guardado: ${its.length} producto${its.length === 1 ? '' : 's'}, ${int(pz)} pieza${pz === 1 ? '' : 's'}.`);
+    resetForm(c); return ops[0].id;
+  }
+  if (c === 'entradas') { delete o.items; delete o.pagoPedido; }
   if (c === 'ventas') {
     if (!o.items.length) { toast('Agrega al menos un producto a la venta.', 'warn'); return null; }
     if (o.items.some(i => i.cantidad <= 0)) { toast('Revisa las cantidades: deben ser 1 o más.', 'warn'); return null; }
@@ -299,9 +319,19 @@ function hints() {
   $('#hint-ventas').innerHTML = h.join('<br>');
   const ca = $('#f-abonos').elements.clienteId.value;
   $('#hint-abonos').innerHTML = ca ? `${esc(cName(ca))} debe: <b>${money(C.cl[ca]?.saldo || 0)}</b>. El abono se descuenta de su venta más antigua.` : '';
-  const pe = $('#f-entradas').elements.productoId.value, fe = $('#f-entradas').elements;
-  const tot = num(fe.cantidad.value) * num(fe.costo.value);
-  $('#hint-entradas').innerHTML = [pe ? `Stock actual: <b>${C.stock[pe] || 0}</b>` : '', tot ? `Total de esta compra: <b>${money(tot)}</b>` : ''].filter(Boolean).join('<br>');
+  const fen = $('#f-entradas'), fe = fen.elements;
+  if (editing.entradas) {
+    const pe = fe.productoId.value, tot = num(fe.cantidad.value) * num(fe.costo.value);
+    $('#hint-entradas').innerHTML = [pe ? `Stock actual: <b>${C.stock[pe] || 0}</b>` : '', tot ? `Total de esta compra: <b>${money(tot)}</b>` : ''].filter(Boolean).join('<br>');
+  } else {
+    for (const r of $$('.it', fen)) {
+      const pid = $('.it-p', r).value, qn = num($('.it-q', r).value), co = num($('.it-r', r).value);
+      $('.it-sub', r).innerHTML = pid ? `Subtotal <b>${money(qn * co)}</b> · Tenías: <b>${C.stock[pid] || 0}</b> → quedarás con <b>${(C.stock[pid] || 0) + qn}</b>` : '';
+    }
+    const its = readItems(fen), tot = sum(its, i => i.cantidad * i.precio);
+    const pz = sum(its, i => i.cantidad);
+    $('#hint-entradas').innerHTML = its.length ? `Total del pedido: <b>${money(tot)}</b> · ${its.length} producto${its.length === 1 ? '' : 's'}, ${int(pz)} pieza${pz === 1 ? '' : 's'}` : '';
+  }
   $('#hint-pagos').innerHTML = `Le debes a Terramar: <b>${money(C.deudaT)}</b>`;
 }
 function autoEntrega() {
@@ -818,8 +848,9 @@ function wire() {
       navigator.clipboard?.writeText(txt).then(() => toast('Lista copiada. Pégala en WhatsApp o donde hagas tu pedido.'), () => toast('No se pudo copiar.', 'warn')); return;
     }
     if (b.id === 'dlg-x') return $('#dlg').close();
-    if (b.dataset.additem) { $('#' + b.dataset.additem).insertAdjacentHTML('beforeend', itemRow()); hints(); return; }
-    if ('rmitem' in b.dataset) { const box = b.closest('.items'); b.closest('.it').remove(); if (!box.children.length) box.innerHTML = itemRow(); autoEntrega(); hints(); return; }
+    if (b.dataset.additem) { const box = $('#' + b.dataset.additem); box.insertAdjacentHTML('beforeend', itemRow({}, box.dataset.kind)); $('.it:last-child .it-p', box)?.focus(); hints(); return; }
+    if (b.dataset.quickrow) { const box = $('#' + b.dataset.quickrow); let last = $('.it:last-child', box); if (!last || $('.it-p', last).value) { box.insertAdjacentHTML('beforeend', itemRow({}, box.dataset.kind)); last = $('.it:last-child', box); } return quickAdd('productos', $('.it-p', last).id); }
+    if ('rmitem' in b.dataset) { const box = b.closest('.items'); b.closest('.it').remove(); if (!box.children.length) box.innerHTML = itemRow({}, box.dataset.kind); autoEntrega(); hints(); return; }
     if (b.dataset.quick) return quickAdd(b.dataset.quick, b.dataset.target);
     if (b.dataset.cancel) return resetForm(b.dataset.cancel);
     if (b.dataset.ed) return startEdit(b.dataset.ed, b.dataset.id);
@@ -869,7 +900,7 @@ function wire() {
     if (el.id === 'f-ped') return pedidos();
     if (el.id === 'f-mov') return movTable();
     if (!fm) return;
-    if (el.classList.contains('it-p')) { const p = byId('productos', el.value), r = el.closest('.it'); if (p) $('.it-r', r).value = num(p.precio) || ''; autoEntrega(); }
+    if (el.classList.contains('it-p')) { const p = byId('productos', el.value), r = el.closest('.it'), compra = r.closest('.items')?.dataset.kind === 'compra'; if (p) $('.it-r', r).value = num(compra ? p.costo : p.precio) || ''; if (!compra) autoEntrega(); }
     if (fm.id === 'f-entradas' && el.name === 'productoId' && !editing.entradas) { const p = byId('productos', el.value); if (p) fm.elements.costo.value = num(p.costo) || ''; }
     if (fm.id === 'f-regalos' && el.name === 'productoId') { const p = byId('productos', el.value); if (p) fm.elements.valor.value = num(p.precio) || ''; }
     if (fm.id === 'f-ventas' && el.name === 'entrega') fm.dataset.touched = '1';
