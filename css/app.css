@@ -74,10 +74,14 @@ select{appearance:none;-webkit-appearance:none;background-image:linear-gradient(
 /* Pedido a Terramar: lista compacta arriba, recuadro para elegir abajo */
 .plist{margin:2px 0 10px;border:1px solid var(--line);border-radius:10px;padding:0 10px;max-height:320px;overflow-y:auto}
 .plist li{padding:7px 0;gap:8px;font-size:14px}
-.plist .pl-n{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.plist .pl-n{min-width:0;overflow-wrap:anywhere}
 .plist .pl-x{padding:2px 9px;min-height:0}
 .plist .pl-empty{display:block;padding:10px 0;font-size:13px;text-align:left}
-.it.ad{grid-template-columns:1fr 1fr}
+.it.ad{grid-template-columns:1fr 1fr 1fr}
+.it.ad>*{min-width:0}
+.it.ad label{white-space:nowrap}
+.it.ad label input{display:block;min-width:0;padding:10px 8px}
+.plist .pl-n .pill{font-size:11px;padding:1px 6px;vertical-align:1px}
 .it.ad .ad-btn{grid-column:1/-1;justify-self:start}
 .it.ad .ad-sub:empty{display:none}
 

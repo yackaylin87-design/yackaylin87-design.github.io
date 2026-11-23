@@ -149,6 +149,7 @@ function fieldHTML(p, f) {
     <div class="it ad" id="${id}">
       <div class="selrow it-p"><select class="ad-p" id="${id}-p" aria-label="Producto">${prodOptions()}</select><button class="btn sm" type="button" data-quick="productos" data-target="${id}-p">+ Nuevo</button></div>
       <label>Piezas<input class="ad-q" type="number" min="1" step="1" inputmode="numeric" value="1"></label>
+      <label>Catálogo<input class="ad-pc" type="number" min="0" step="0.01" inputmode="decimal" placeholder="$0.00"></label>
       <label>Costo c/u<input class="ad-r" type="number" min="0" step="0.01" inputmode="decimal" placeholder="$0.00"></label>
       <div class="it-sub ad-sub"></div>
       <button class="btn sm pri ad-btn" type="button" data-addline>+ Agregar al pedido</button>
@@ -200,20 +201,22 @@ function itemRow(it = {}, kind = 'venta') {
     <div class="it-sub"></div></div>`;
 }
 // Pedido a Terramar: un renglón para elegir y una lista compacta de lo que ya se agregó.
-const readLines = fm => $$('.plist li[data-pid]', fm).map(li => ({ productoId: li.dataset.pid, cantidad: num(li.dataset.q), precio: r2(li.dataset.c), costo: r2(li.dataset.c) }));
+const readLines = fm => $$('.plist li[data-pid]', fm).map(li => ({ productoId: li.dataset.pid, cantidad: num(li.dataset.q), precio: r2(li.dataset.c), costo: r2(li.dataset.c), catalogo: r2(li.dataset.pc) }));
+// ¿El precio de catálogo de esta línea es distinto al guardado en Productos? (entonces se actualizará al guardar)
+const precioNuevo = l => l.catalogo > 0 && l.catalogo !== r2(byId('productos', l.productoId)?.precio);
 function renderLines(box, lines) {
   const ul = $('#' + box.id + '-list');
-  ul.innerHTML = lines.length ? lines.map(l => `<li data-pid="${esc(l.productoId)}" data-q="${l.cantidad}" data-c="${l.precio}"><span class="grow pl-n">${esc(pName(l.productoId))}</span><span class="n pl-q">${int(l.cantidad)} × ${money(l.precio)}</span><button class="btn sm del pl-x" type="button" data-rmline aria-label="Quitar ${esc(pName(l.productoId))}">✕</button></li>`).join('')
+  ul.innerHTML = lines.length ? lines.map(l => `<li data-pid="${esc(l.productoId)}" data-q="${l.cantidad}" data-c="${l.precio}" data-pc="${l.catalogo || ''}"><span class="grow pl-n">${esc(pName(l.productoId))}${precioNuevo(l) ? ` <span class="pill p-info" title="Al guardar, este será su nuevo precio de catálogo">nuevo ${money(l.catalogo)}</span>` : ''}</span><span class="n pl-q">${int(l.cantidad)} × ${money(l.precio)}</span><button class="btn sm del pl-x" type="button" data-rmline aria-label="Quitar ${esc(pName(l.productoId))}">✕</button></li>`).join('')
     : '<li class="empty pl-empty">Todavía no agregas productos a este pedido.</li>';
 }
 function addLine(box) {
-  const fm = box.closest('form'), pid = $('.ad-p', box).value, q = Math.round(num($('.ad-q', box).value)), c = r2($('.ad-r', box).value);
+  const fm = box.closest('form'), pid = $('.ad-p', box).value, q = Math.round(num($('.ad-q', box).value)), c = r2($('.ad-r', box).value), pc = r2($('.ad-pc', box).value);
   if (!pid) { toast('Elige un producto.', 'warn'); $('.ad-p', box).focus(); return false; }
   if (q <= 0) { toast('Las piezas deben ser 1 o más.', 'warn'); return false; }
-  const lines = readLines(fm), same = lines.find(l => l.productoId === pid && l.precio === c);
-  if (same) same.cantidad += q; else lines.push({ productoId: pid, cantidad: q, precio: c });
+  const lines = readLines(fm), same = lines.find(l => l.productoId === pid && l.precio === c && l.catalogo === pc);
+  if (same) same.cantidad += q; else lines.push({ productoId: pid, cantidad: q, precio: c, catalogo: pc });
   renderLines(box, lines);
-  $('.ad-p', box).value = ''; $('.ad-q', box).value = 1; $('.ad-r', box).value = '';
+  $('.ad-p', box).value = ''; $('.ad-q', box).value = 1; $('.ad-r', box).value = ''; $('.ad-pc', box).value = '';
   return true;
 }
 function readItems(fm) {
@@ -277,10 +280,16 @@ function save(c, fm, { quick = false } = {}) {
     if (!its.length) { toast('Agrega al menos un producto al pedido.', 'warn'); return null; }
     if (its.some(i => i.cantidad <= 0)) { toast('Revisa las piezas: deben ser 1 o más.', 'warn'); return null; }
     const now = Date.now(), ops = its.map((i, k) => ({ t: 'set', c: 'entradas', id: store.newId('entradas'), data: { fecha: o.fecha, productoId: i.productoId, cantidad: i.cantidad, costo: i.precio, pagado: 0, nota: o.nota, creado: now + k } }));
+    // Precios nuevos del catálogo: se actualiza el producto (precio y costo) para las siguientes ventas y pedidos.
+    // Lo ya registrado no cambia porque cada compra y cada venta guarda su propio precio.
+    const upd = {};
+    for (const i of its) if (precioNuevo(i)) upd[i.productoId] = { precio: i.catalogo, costo: i.precio };
+    for (const [pid, d] of Object.entries(upd)) ops.push({ t: 'update', c: 'productos', id: pid, data: d });
     if (o.pagoPedido > 0) ops.push({ t: 'set', c: 'pagos', id: store.newId('pagos'), data: { fecha: o.fecha, monto: o.pagoPedido, metodo: 'Transferencia', nota: 'Pago de ' + (o.nota || 'pedido del ' + fdate(o.fecha)), creado: now + its.length } });
     commit(ops);
     const pz = sum(its, i => i.cantidad);
-    toast(`Pedido guardado: ${its.length} producto${its.length === 1 ? '' : 's'}, ${int(pz)} pieza${pz === 1 ? '' : 's'}.`);
+    const nu = Object.keys(upd).length;
+    toast(`Pedido guardado: ${its.length} producto${its.length === 1 ? '' : 's'}, ${int(pz)} pieza${pz === 1 ? '' : 's'}.${nu ? ` Se actualizó el precio de ${nu} producto${nu === 1 ? '' : 's'}.` : ''}`);
     resetForm(c); return ops[0].id;
   }
   if (c === 'entradas') { delete o.items; delete o.pagoPedido; }
@@ -928,7 +937,7 @@ function wire() {
     if (el.id === 'f-ped') return pedidos();
     if (el.id === 'f-mov') return movTable();
     if (!fm) return;
-    if (el.classList.contains('ad-p')) { const p = byId('productos', el.value), box = el.closest('.ad'); $('.ad-r', box).value = p ? (num(p.costo) || '') : ''; }
+    if (el.classList.contains('ad-p')) { const p = byId('productos', el.value), box = el.closest('.ad'); $('.ad-r', box).value = p ? (num(p.costo) || '') : ''; $('.ad-pc', box).value = p ? (num(p.precio) || '') : ''; }
     if (el.classList.contains('it-p')) { const p = byId('productos', el.value), r = el.closest('.it'), compra = r.closest('.items')?.dataset.kind === 'compra'; if (p) $('.it-r', r).value = num(compra ? p.costo : p.precio) || ''; if (!compra) autoEntrega(); }
     if (fm.id === 'f-entradas' && el.name === 'productoId' && !editing.entradas) { const p = byId('productos', el.value); if (p) fm.elements.costo.value = num(p.costo) || ''; }
     if (fm.id === 'f-regalos' && el.name === 'productoId') { const p = byId('productos', el.value); if (p) fm.elements.valor.value = num(p.precio) || ''; }
@@ -942,6 +951,7 @@ function wire() {
     if (el.id === 'q-ped') return pedidos();
     if (el.id === 'q-mov') return movTable();
     // Costo automático: mitad del precio de catálogo + 16%. Solo se reemplaza si el costo está vacío o lo puso la página.
+    if (el.classList.contains('ad-pc')) { const co = $('.ad-r', el.closest('.ad')); co.value = num(el.value) > 0 ? r2(num(el.value) / 2 * 1.16).toFixed(2) : ''; }
     if (el.form && el.name === 'precio' && el.form.elements.costo && (el.form.id === 'f-productos' || el.form.dataset.c === 'productos')) {
       const fm = el.form, co = fm.elements.costo, auto = fm.dataset.autoCosto;
       if (!co.value || co.value === auto) { const v = num(el.value) > 0 ? r2(num(el.value) / 2 * 1.16).toFixed(2) : ''; co.value = v; fm.dataset.autoCosto = v; }
