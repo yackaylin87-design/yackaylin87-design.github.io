@@ -144,17 +144,20 @@ function fieldHTML(p, f) {
   const id = `${p}-${f.k}`; let h;
   if (f.t === 'sel') h = `<div class="selrow"><select id="${id}" name="${f.k}"></select>${f.quick ? `<button class="btn sm" type="button" data-quick="${f.src}" data-target="${id}">+ Nuevo</button>` : ''}</div>`;
   else if (f.t === 'opt') h = `<select id="${id}" name="${f.k}">${f.opts.map(o => `<option>${o}</option>`).join('')}</select>`;
-  else if (f.t === 'items' && f.kind === 'compra') return `<div class="fld" data-k="items"><span class="lbl">${f.l}</span>
+  else if (f.t === 'items') {
+    // Lista compacta arriba y un solo recuadro para elegir producto abajo (ventas y pedidos a Terramar).
+    const compra = f.kind === 'compra';
+    return `<div class="fld" data-k="items"><span class="lbl">${f.l}</span>
     <ul class="list plist" id="${id}-list"></ul>
-    <div class="it ad" id="${id}">
+    <div class="it ad${compra ? '' : ' ad2'}" id="${id}" data-kind="${compra ? 'compra' : 'venta'}">
       <div class="selrow it-p"><select class="ad-p" id="${id}-p" aria-label="Producto">${prodOptions()}</select><button class="btn sm" type="button" data-quick="productos" data-target="${id}-p">+ Nuevo</button></div>
-      <label>Piezas<input class="ad-q" type="number" min="1" step="1" inputmode="numeric" value="1"></label>
-      <label>Catálogo<input class="ad-pc" type="number" min="0" step="0.01" inputmode="decimal" placeholder="$0.00"></label>
-      <label>Costo c/u<input class="ad-r" type="number" min="0" step="0.01" inputmode="decimal" placeholder="$0.00"></label>
+      <label>${compra ? 'Piezas' : 'Cantidad'}<input class="ad-q" type="number" min="1" step="1" inputmode="numeric" value="1"></label>
+      ${compra ? '<label>Catálogo<input class="ad-pc" type="number" min="0" step="0.01" inputmode="decimal" placeholder="$0.00"></label>' : ''}
+      <label>${compra ? 'Costo c/u' : 'Precio c/u'}<input class="ad-r" type="number" min="0" step="0.01" inputmode="decimal" placeholder="$0.00"></label>
       <div class="it-sub ad-sub"></div>
-      <button class="btn sm pri ad-btn" type="button" data-addline>+ Agregar al pedido</button>
+      <button class="btn sm pri ad-btn" type="button" data-addline>+ Agregar ${compra ? 'al pedido' : 'a la venta'}</button>
     </div></div>`;
-  else if (f.t === 'items') return `<div class="fld" data-k="items"><span class="lbl">${f.l}</span><div class="items" id="${id}" data-kind="${f.kind || 'venta'}"></div><div class="btns" style="margin-top:8px"><button class="btn sm" type="button" data-additem="${id}">+ Agregar otro producto</button></div></div>`;
+  }
   else {
     const type = f.t === 'date' ? 'date' : f.t === 'tel' ? 'tel' : (f.t === 'money' || f.t === 'int') ? 'number' : 'text';
     const extra = f.t === 'money' ? ' min="0" step="0.01" inputmode="decimal" placeholder="$0.00"' : f.t === 'int' ? ' min="0" step="1" inputmode="numeric"' : f.t === 'list' ? ` list="dl-${f.list}" autocomplete="off"` : '';
@@ -190,41 +193,34 @@ function prodOptions(sel) {
   return `<option value="">${list.length ? 'Elegir producto…' : 'Primero agrega productos'}</option>` +
     list.map(p => `<option value="${esc(p.id)}"${p.id === sel ? ' selected' : ''}>${esc(p.nombre)}${p.codigo ? ' · ' + esc(p.codigo) : ''}</option>`).join('');
 }
-let rowN = 0;
-function itemRow(it = {}, kind = 'venta') {
-  const compra = kind === 'compra';
-  return `<div class="it" data-pid="${esc(it.productoId || '')}" data-costo="${it.costo ?? ''}">
-    <select class="it-p" id="itp-${++rowN}" aria-label="Producto">${prodOptions(it.productoId)}</select>
-    <label>${compra ? 'Piezas' : 'Cantidad'}<input class="it-q" type="number" min="1" step="1" inputmode="numeric" value="${it.cantidad || 1}"></label>
-    <label>${compra ? 'Costo c/u' : 'Precio c/u'}<input class="it-r" type="number" min="0" step="0.01" inputmode="decimal" value="${(compra ? it.costo : it.precio) ?? ''}" placeholder="$0.00"></label>
-    <button class="btn sm del it-x" type="button" data-rmitem aria-label="Quitar producto">✕</button>
-    <div class="it-sub"></div></div>`;
-}
-// Pedido a Terramar: un renglón para elegir y una lista compacta de lo que ya se agregó.
-const readLines = fm => $$('.plist li[data-pid]', fm).map(li => ({ productoId: li.dataset.pid, cantidad: num(li.dataset.q), precio: r2(li.dataset.c), costo: r2(li.dataset.c), catalogo: r2(li.dataset.pc) }));
+// Lista compacta de productos (venta o pedido). Cada línea guarda producto, cantidad y precio;
+// en ventas también el costo de ese momento (data-co), para que la ganancia no cambie si luego cambia el costo.
+const readLines = fm => $$('.plist li[data-pid]', fm).map(li => ({ productoId: li.dataset.pid, cantidad: num(li.dataset.q), precio: r2(li.dataset.c), costo: li.dataset.co !== undefined && li.dataset.co !== '' ? r2(li.dataset.co) : r2(li.dataset.c), catalogo: r2(li.dataset.pc) }));
+const readItems = readLines;
 // ¿El precio de catálogo de esta línea es distinto al guardado en Productos? (entonces se actualizará al guardar)
 const precioNuevo = l => l.catalogo > 0 && l.catalogo !== r2(byId('productos', l.productoId)?.precio);
+// Piezas disponibles para vender (si estás editando una venta, cuentan las que ya tenía).
+const stockVenta = pid => (C.stock?.[pid] || 0) + (editing.ventas ? sum(items(byId('ventas', editing.ventas)).filter(i => i.productoId === pid), i => i.cantidad) : 0);
 function renderLines(box, lines) {
-  const ul = $('#' + box.id + '-list');
-  ul.innerHTML = lines.length ? lines.map(l => `<li data-pid="${esc(l.productoId)}" data-q="${l.cantidad}" data-c="${l.precio}" data-pc="${l.catalogo || ''}"><span class="grow pl-n">${esc(pName(l.productoId))}${precioNuevo(l) ? ` <span class="pill p-info" title="Al guardar, este será su nuevo precio de catálogo">nuevo ${money(l.catalogo)}</span>` : ''}</span><span class="n pl-q">${int(l.cantidad)} × ${money(l.precio)}</span><button class="btn sm del pl-x" type="button" data-rmline aria-label="Quitar ${esc(pName(l.productoId))}">✕</button></li>`).join('')
-    : '<li class="empty pl-empty">Todavía no agregas productos a este pedido.</li>';
+  const ul = $('#' + box.id + '-list'), venta = box.dataset.kind === 'venta', need = {};
+  ul.innerHTML = lines.length ? lines.map(l => {
+    need[l.productoId] = (need[l.productoId] || 0) + l.cantidad;
+    const tag = venta ? (need[l.productoId] > stockVenta(l.productoId) ? ' <span class="pill p-acc" title="No tienes suficientes piezas: hay que pedirlo a Terramar">Hay que pedirlo</span>' : '')
+      : precioNuevo(l) ? ` <span class="pill p-info" title="Al guardar, este será su nuevo precio de catálogo">nuevo ${money(l.catalogo)}</span>` : '';
+    return `<li data-pid="${esc(l.productoId)}" data-q="${l.cantidad}" data-c="${l.precio}" data-pc="${l.catalogo || ''}"${venta ? ` data-co="${l.costo ?? ''}"` : ''}><span class="grow pl-n">${esc(pName(l.productoId))}${tag}</span><span class="n pl-q">${int(l.cantidad)} × ${money(l.precio)}</span><button class="btn sm del pl-x" type="button" data-rmline aria-label="Quitar ${esc(pName(l.productoId))}">✕</button></li>`;
+  }).join('') : `<li class="empty pl-empty">Todavía no agregas productos a ${venta ? 'esta venta' : 'este pedido'}.</li>`;
 }
 function addLine(box) {
-  const fm = box.closest('form'), pid = $('.ad-p', box).value, q = Math.round(num($('.ad-q', box).value)), c = r2($('.ad-r', box).value), pc = r2($('.ad-pc', box).value);
+  const fm = box.closest('form'), venta = box.dataset.kind === 'venta', pid = $('.ad-p', box).value, q = Math.round(num($('.ad-q', box).value)), c = r2($('.ad-r', box).value), pc = venta ? 0 : r2($('.ad-pc', box).value);
   if (!pid) { toast('Elige un producto.', 'warn'); $('.ad-p', box).focus(); return false; }
-  if (q <= 0) { toast('Las piezas deben ser 1 o más.', 'warn'); return false; }
-  const lines = readLines(fm), same = lines.find(l => l.productoId === pid && l.precio === c && l.catalogo === pc);
-  if (same) same.cantidad += q; else lines.push({ productoId: pid, cantidad: q, precio: c, catalogo: pc });
+  if (q <= 0) { toast(`${venta ? 'La cantidad debe' : 'Las piezas deben'} ser 1 o más.`, 'warn'); return false; }
+  const co = venta ? r2(byId('productos', pid)?.costo) : c;
+  const lines = readLines(fm), same = lines.find(l => l.productoId === pid && l.precio === c && l.catalogo === pc && l.costo === co);
+  if (same) same.cantidad += q; else lines.push({ productoId: pid, cantidad: q, precio: c, catalogo: pc, costo: co });
   renderLines(box, lines);
-  $('.ad-p', box).value = ''; $('.ad-q', box).value = 1; $('.ad-r', box).value = ''; $('.ad-pc', box).value = '';
+  $('.ad-p', box).value = ''; $('.ad-q', box).value = 1; $('.ad-r', box).value = ''; if ($('.ad-pc', box)) $('.ad-pc', box).value = '';
+  if (venta) autoEntrega();
   return true;
-}
-function readItems(fm) {
-  return $$('.it', fm).map(r => {
-    const pid = $('.it-p', r).value, p = byId('productos', pid);
-    const costo = r.dataset.pid === pid && r.dataset.costo !== '' ? num(r.dataset.costo) : num(p?.costo);
-    return { productoId: pid, cantidad: Math.round(num($('.it-q', r).value)), precio: r2($('.it-r', r).value), costo: r2(costo) };
-  }).filter(i => i.productoId);
 }
 
 function resetForm(c) {
@@ -232,7 +228,7 @@ function resetForm(c) {
   fm.reset(); editing[c] = null; fm.dataset.touched = '';
   for (const f of F[c].f) if (f.t === 'date') fm.elements[f.k].value = today();
   const fi = F[c].f.find(f => f.t === 'items');
-  if (fi?.kind === 'compra') renderLines($(`#${c}-items`), []); else if (fi) $(`#${c}-items`).innerHTML = itemRow({}, fi.kind);
+  if (fi) renderLines($(`#${c}-items`), []);
   $('#h-' + c).textContent = F[c].title; $('#b-' + c).textContent = F[c].saveLbl || 'Guardar';
   fm.querySelector('[data-cancel]').hidden = true;
   applyShow(c, fm); hints();
@@ -244,7 +240,7 @@ function startEdit(c, id) {
   const fm = $('#f-' + c); editing[c] = id;
   for (const f of F[c].f) {
     if (f.onlyNew) continue;
-    if (f.t === 'items') { $(`#${c}-items`).innerHTML = (items(x).length ? items(x) : [{}]).map(i => itemRow(i, f.kind)).join(''); continue; }
+    if (f.t === 'items') { const box = $(`#${c}-items`); $$('input', box).forEach(i => i.value = i.classList.contains('ad-q') ? 1 : ''); $('.ad-p', box).value = ''; renderLines(box, items(x).map(i => ({ ...i, cantidad: num(i.cantidad), precio: r2(i.precio), costo: i.costo ?? r2(byId('productos', i.productoId)?.costo) }))); continue; }
     const el = fm.elements[f.k]; el.value = x[f.k] ?? (f.t === 'opt' ? f.opts[0] : '');
     if ((f.t === 'money' || f.t === 'int') && !num(x[f.k]) && !f.req) el.value = '';
   }
@@ -258,7 +254,7 @@ function startEdit(c, id) {
 function readForm(c, fm) {
   const o = {}, vals = formVals(fm);
   for (const f of F[c].f) {
-    if (f.t === 'items') { o.items = f.kind === 'compra' ? readLines(fm) : readItems(fm); continue; }
+    if (f.t === 'items') { o.items = readLines(fm).map(({ productoId, cantidad, precio, costo, catalogo }) => f.kind === 'compra' ? { productoId, cantidad, precio, costo, catalogo } : { productoId, cantidad, precio, costo }); continue; }
     let v = (fm.elements[f.k]?.value || '').trim();
     if (f.show && !f.show(vals)) v = '';
     if (f.t === 'money') v = r2(v); else if (f.t === 'int') v = Math.round(num(v));
@@ -269,7 +265,7 @@ function readForm(c, fm) {
 
 function save(c, fm, { quick = false } = {}) {
   // Si dejaste un producto elegido sin tocar "Agregar al pedido", se agrega solo antes de guardar.
-  if (c === 'entradas' && !editing[c]) { const ad = $('#entradas-items'); if ($('.ad-p', ad).value && !addLine(ad)) return null; }
+  if ((c === 'entradas' && !editing[c]) || (c === 'ventas' && !quick)) { const ad = $(`#${c}-items`); if ($('.ad-p', ad).value && !addLine(ad)) return null; }
   const o = readForm(c, fm);
   const isEdit = !quick && !!editing[c];
   const bad = F[c].f.find(f => f.req && !(f.onlyEdit && !isEdit) && !(f.onlyNew && isEdit) && (f.t === 'money' || f.t === 'int' ? o[f.k] <= 0 : !o[f.k]));
@@ -344,14 +340,11 @@ function fillSelects() {
 
 function hints() {
   const fv = $('#f-ventas'); if (!fv || !C.stock) return;
-  const its = readItems(fv), need = {};
-  for (const r of $$('.it', fv)) {
-    const pid = $('.it-p', r).value, qn = num($('.it-q', r).value), pr = num($('.it-r', r).value);
-    need[pid] = (need[pid] || 0) + qn;
-    const st = (C.stock[pid] || 0) + (editing.ventas ? sum(items(byId('ventas', editing.ventas)).filter(i => i.productoId === pid), i => i.cantidad) : 0);
-    $('.it-sub', r).innerHTML = pid ? `Subtotal <b>${money(qn * pr)}</b> · En stock: <b>${st}</b>${need[pid] > st ? ' · <span class="bad">no alcanza, hay que pedirlo</span>' : ''}` : '';
-  }
+  const its = readLines(fv), adv = $('#ventas-items');
+  { const pid = $('.ad-p', adv).value, qn = num($('.ad-q', adv).value), pr = num($('.ad-r', adv).value), st = stockVenta(pid) - sum(its.filter(i => i.productoId === pid), i => i.cantidad);
+    $('.ad-sub', adv).innerHTML = pid ? `Subtotal <b>${money(qn * pr)}</b> · En stock: <b>${Math.max(0, st)}</b>${qn > st ? ' · <span class="bad">no alcanza, hay que pedirlo</span>' : ''}` : ''; }
   const t = sum(its, i => i.cantidad * i.precio), c = fv.elements.clienteId.value, h = [];
+  if (its.length) h.push(`${its.length} producto${its.length === 1 ? '' : 's'} en esta venta`);
   if (t) h.push(`Total de la venta: <b>${money(t)}</b>`);
   if (c) h.push(`Saldo actual de ${esc(cName(c))}: <b>${money(C.cl[c]?.saldo || 0)}</b>`);
   $('#hint-ventas').innerHTML = h.join('<br>');
@@ -912,10 +905,8 @@ function wire() {
       navigator.clipboard?.writeText(txt).then(() => toast('Lista copiada. Pégala en WhatsApp o donde hagas tu pedido.'), () => toast('No se pudo copiar.', 'warn')); return;
     }
     if (b.id === 'dlg-x') return $('#dlg').close();
-    if (b.dataset.additem) { const box = $('#' + b.dataset.additem); box.insertAdjacentHTML('beforeend', itemRow({}, box.dataset.kind)); $('.it:last-child .it-p', box)?.focus(); hints(); return; }
     if ('addline' in b.dataset) { const box = b.closest('.ad'); if (addLine(box)) $('.ad-p', box).focus(); hints(); return; }
-    if ('rmline' in b.dataset) { const li = b.closest('li'), ul = li.parentElement, box = $('#' + ul.id.replace(/-list$/, '')); li.remove(); renderLines(box, readLines(box.closest('form'))); hints(); return; }
-    if ('rmitem' in b.dataset) { const box = b.closest('.items'); b.closest('.it').remove(); if (!box.children.length) box.innerHTML = itemRow({}, box.dataset.kind); autoEntrega(); hints(); return; }
+    if ('rmline' in b.dataset) { const li = b.closest('li'), ul = li.parentElement, box = $('#' + ul.id.replace(/-list$/, '')); li.remove(); renderLines(box, readLines(box.closest('form'))); if (box.dataset.kind === 'venta') autoEntrega(); hints(); return; }
     if (b.dataset.quick) return quickAdd(b.dataset.quick, b.dataset.target);
     if (b.dataset.cancel) return resetForm(b.dataset.cancel);
     if (b.dataset.ed) return startEdit(b.dataset.ed, b.dataset.id);
@@ -965,8 +956,11 @@ function wire() {
     if (el.id === 'f-ped') return pedidos();
     if (el.id === 'f-mov') return movTable();
     if (!fm) return;
-    if (el.classList.contains('ad-p')) { const p = byId('productos', el.value), box = el.closest('.ad'); $('.ad-r', box).value = p ? (num(p.costo) || '') : ''; $('.ad-pc', box).value = p ? (num(p.precio) || '') : ''; }
-    if (el.classList.contains('it-p')) { const p = byId('productos', el.value), r = el.closest('.it'), compra = r.closest('.items')?.dataset.kind === 'compra'; if (p) $('.it-r', r).value = num(compra ? p.costo : p.precio) || ''; if (!compra) autoEntrega(); }
+    if (el.classList.contains('ad-p')) {
+      const p = byId('productos', el.value), box = el.closest('.ad');
+      if (box.dataset.kind === 'venta') $('.ad-r', box).value = p ? (num(p.precio) || '') : '';
+      else { $('.ad-r', box).value = p ? (num(p.costo) || '') : ''; $('.ad-pc', box).value = p ? (num(p.precio) || '') : ''; }
+    }
     if (fm.id === 'f-entradas' && el.name === 'productoId' && !editing.entradas) { const p = byId('productos', el.value); if (p) fm.elements.costo.value = num(p.costo) || ''; }
     if (fm.id === 'f-regalos' && el.name === 'productoId') { const p = byId('productos', el.value); if (p) fm.elements.valor.value = num(p.precio) || ''; }
     if (fm.id === 'f-ventas' && el.name === 'entrega') fm.dataset.touched = '1';
@@ -984,7 +978,7 @@ function wire() {
       const fm = el.form, co = fm.elements.costo, auto = fm.dataset.autoCosto;
       if (!co.value || co.value === auto) { const v = num(el.value) > 0 ? r2(num(el.value) / 2 * 1.16).toFixed(2) : ''; co.value = v; fm.dataset.autoCosto = v; }
     }
-    if (el.form) { if (el.classList.contains('it-q')) autoEntrega(); const c = el.form.id.slice(2); if (F[c]) applyShow(c, el.form); hints(); }
+    if (el.form) { const c = el.form.id.slice(2); if (F[c]) applyShow(c, el.form); hints(); }
   });
   // Recordar qué pedidos dejaste abiertos (para que no se cierren al guardar algo).
   document.addEventListener('toggle', e => { const d = e.target; if (d.classList?.contains('ped') && !q.entradas) d.open ? openG.add(d.dataset.g) : openG.delete(d.dataset.g); }, true);

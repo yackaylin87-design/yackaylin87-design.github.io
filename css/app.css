@@ -78,6 +78,7 @@ select{appearance:none;-webkit-appearance:none;background-image:linear-gradient(
 .plist .pl-x{padding:2px 9px;min-height:0}
 .plist .pl-empty{display:block;padding:10px 0;font-size:13px;text-align:left}
 .it.ad{grid-template-columns:1fr 1fr 1fr}
+.it.ad.ad2{grid-template-columns:1fr 1fr}
 .it.ad>*{min-width:0}
 .it.ad label{white-space:nowrap}
 .it.ad label input{display:block;min-width:0;padding:10px 8px}
