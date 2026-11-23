@@ -1,6 +1,6 @@
 // Permite abrir la app sin señal. Los archivos propios se buscan primero en internet
 // (así siempre tienes la versión más nueva) y, si no hay conexión, se usa la copia guardada.
-const CACHE = 'ventas-v8';
+const CACHE = 'ventas-v9';
 const SHELL = ['./', 'index.html', 'css/app.css', 'js/app.js', 'js/store.js', 'js/config.js', 'manifest.webmanifest', 'icons/icon.svg', 'icons/icon-192.png'];
 const CDN = ['www.gstatic.com', 'cdn.jsdelivr.net', 'fonts.googleapis.com', 'fonts.gstatic.com'];
 

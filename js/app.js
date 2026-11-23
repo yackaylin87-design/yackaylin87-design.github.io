@@ -391,10 +391,10 @@ const acts = (c, id, extra = '') => `${extra}<button class="btn sm" type="button
 
 function rows(c) {
   const s = C.stock, cl = C.cl;
-  if (c === 'productos') return { h: ['Código', 'Producto', 'Catálogo', 'Costo', 'Precio', 'Ganancia', 'Stock'], n: [3, 4, 5, 6], r: [...S.productos].sort(byName).map(p => {
+  if (c === 'productos') return { h: ['#', 'Código', 'Producto', 'Catálogo', 'Costo', 'Precio', 'Ganancia', 'Stock'], n: [4, 5, 6, 7], r: [...S.productos].sort(byName).map((p, i) => {
     const st = s[p.id] || 0, gan = num(p.precio) - num(p.costo);
     const stH = isLow(p) ? `<span class="pill ${st <= 0 ? 'p-acc' : 'p-warn'}">${st}</span>` : st < 0 ? `<span class="pill p-acc" title="Vendido sin stock: falta que llegue">${st}</span>` : st;
-    return { id: p.id, v: [p.codigo, p.nombre, p.catalogo, r2(p.costo), r2(p.precio), r2(gan), st], h: [esc(p.codigo), `<b>${esc(p.nombre)}</b>`, esc(p.catalogo), money(p.costo), money(p.precio), money(gan), stH] };
+    return { id: p.id, v: [i + 1, p.codigo, p.nombre, p.catalogo, r2(p.costo), r2(p.precio), r2(gan), st], h: [`<span class="muted">${i + 1}</span>`, esc(p.codigo), `<b>${esc(p.nombre)}</b>`, esc(p.catalogo), money(p.costo), money(p.precio), money(gan), stH] };
   }) };
   if (c === 'clientes') return { h: ['Cliente', 'WhatsApp', 'Compras', 'Comprado', 'Abonado', 'Saldo'], n: [2, 3, 4, 5], r: [...S.clientes].sort(byName).map(x => {
     const k = cl[x.id] || { vendido: 0, abonado: 0, saldo: 0, n: 0 };
