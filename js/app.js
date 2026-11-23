@@ -39,12 +39,14 @@ const fail = err => { console.error(err); toast(err?.code === 'permission-denied
 // Guarda sin esperar a la nube: el cambio se ve al instante y se sube cuando haya señal.
 const commit = ops => { store.commit(ops).catch(fail); };
 
-const ESTADOS = ['Por pedir a Terramar', 'Pedido a Terramar', 'Llegó', 'Entregado'];
+const ESTADOS = ['Por pedir a Terramar', 'Pedido a Terramar', 'Llegó', 'Pendiente por entregar', 'Entregado'];
+// Siguiente paso en Pedidos: lo que ya llegó o ya tienes en stock se marca directo como entregado.
+const nextEst = s => s === 'Llegó' || s === 'Pendiente por entregar' ? 'Entregado' : ESTADOS[ESTADOS.indexOf(s) + 1];
 const ORIGENES = ['Meta Ads', 'Recomendación', 'Clienta frecuente', 'Otro'];
 const METODOS = ['Efectivo', 'Transferencia', 'Tarjeta', 'Otro'];
 const CATS = ['Meta Ads', 'Envíos', 'Empaque', 'Otros'];
 const est = v => ESTADOS.includes(v?.entrega) ? v.entrega : 'Entregado';
-const estPill = s => s === 'Entregado' ? 'p-ok' : s === 'Llegó' ? 'p-info' : s === 'Pedido a Terramar' ? 'p-warn' : 'p-acc';
+const estPill = s => s === 'Entregado' ? 'p-ok' : s === 'Llegó' || s === 'Pendiente por entregar' ? 'p-info' : s === 'Pedido a Terramar' ? 'p-warn' : 'p-acc';
 const payPill = e => e === 'Pagada' ? 'p-ok' : e === 'Parcial' ? 'p-warn' : 'p-acc';
 
 /* ============ Ventas: cálculos ============ */
@@ -500,7 +502,7 @@ function pedidos() {
   const t = ($('#q-ped').value || '').toLowerCase(), fs = $('#f-ped').value;
   const L = S.ventas.filter(v => est(v) !== 'Entregado' && (!fs || est(v) === fs)).sort(ord(1)).filter(v => !t || `${cName(v.clienteId)} ${vDesc(v)} ${est(v)}`.toLowerCase().includes(t));
   const R = { h: ['Fecha', 'Cliente', 'Productos', 'Le falta pagar', 'Estado'], n: [3] };
-  $('#t-pedidos').innerHTML = L.length ? tableHTML(R, L.map(v => ({ id: v.id, h: [fdate(v.fecha), esc(cName(v.clienteId)), esc(vDesc(v)), money(C.vp[v.id] ?? 0), `<span class="pill ${estPill(est(v))}">${est(v)}</span>`] })), r => { const nx = ESTADOS[ESTADOS.indexOf(est(byId('ventas', r.id))) + 1]; return nx ? `<button class="btn sm pri" type="button" data-adv="${esc(r.id)}" data-to="${nx}">Marcar: ${nx}</button>` : ''; })
+  $('#t-pedidos').innerHTML = L.length ? tableHTML(R, L.map(v => ({ id: v.id, h: [fdate(v.fecha), esc(cName(v.clienteId)), esc(vDesc(v)), money(C.vp[v.id] ?? 0), `<span class="pill ${estPill(est(v))}">${est(v)}</span>`] })), r => { const nx = nextEst(est(byId('ventas', r.id))); return nx ? `<button class="btn sm pri" type="button" data-adv="${esc(r.id)}" data-to="${nx}">Marcar: ${nx}</button>` : ''; })
     : `<p class="empty">${S.ventas.length ? 'No hay pedidos pendientes aquí.' : 'Aún no hay pedidos. Registra una venta para empezar.'}</p>`;
 }
 
