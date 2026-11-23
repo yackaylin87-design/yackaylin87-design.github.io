@@ -83,7 +83,8 @@ function compute() {
   const compras = sum(S.entradas, eCosto), pagadoT = sum(S.entradas, e => e.pagado) + sum(S.pagos, p => p.monto);
   C = { stock, cl, vp, compras, pagadoT, deudaT: Math.max(0, compras - pagadoT) };
 }
-const isLow = p => num(p.minimo) > 0 && (C.stock[p.id] || 0) <= num(p.minimo);
+// Aviso de stock bajo: siempre cuando queda 1 pieza o menos (o el número que tenga guardado un producto viejo).
+const isLow = p => (C.stock[p.id] || 0) <= (num(p.minimo) > 0 ? num(p.minimo) : 1);
 
 /* ============ Formularios ============ */
 const fecha = { k: 'fecha', l: 'Fecha', t: 'date', req: 1 }, nota = { k: 'nota', l: 'Nota (opcional)', t: 'text' };
@@ -111,8 +112,7 @@ const F = {
     { k: 'nombre', l: 'Nombre del producto', t: 'text', req: 1 },
     { k: 'catalogo', l: 'Catálogo o campaña', t: 'list', list: 'catalogos', ph: 'Ej. Catálogo Noviembre' },
     { k: 'precio', l: 'Precio de catálogo (precio de venta)', t: 'money', req: 1 },
-    { k: 'costo', l: 'Costo (lo que te cobra Terramar)', t: 'money', help: 'Se calcula solo: la mitad del precio de catálogo + 16%. Puedes cambiarlo si es otro.' },
-    { k: 'minimo', l: 'Avisarme cuando queden (piezas)', t: 'int', help: 'Déjalo vacío si no quieres aviso de stock bajo.' }] },
+    { k: 'costo', l: 'Costo (lo que te cobra Terramar)', t: 'money', help: 'Se calcula solo: la mitad del precio de catálogo + 16%. Puedes cambiarlo si es otro.' }] },
   entradas: { title: 'Registrar pedido que llegó', one: 'compra', many: 'compras', saveLbl: 'Guardar pedido', f: [
     fecha,
     { k: 'nota', l: 'Nombre del pedido', t: 'text', ph: 'Ej. Primer pedido', help: 'Se pone en todos los productos de este pedido para que sepas que van juntos.' },
