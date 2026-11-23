@@ -110,8 +110,8 @@ const F = {
     { k: 'codigo', l: 'Código', t: 'text' },
     { k: 'nombre', l: 'Nombre del producto', t: 'text', req: 1 },
     { k: 'catalogo', l: 'Catálogo o campaña', t: 'list', list: 'catalogos', ph: 'Ej. Catálogo Noviembre' },
-    { k: 'costo', l: 'Costo (lo que te cobra Terramar)', t: 'money' },
-    { k: 'precio', l: 'Precio de venta', t: 'money', req: 1 },
+    { k: 'precio', l: 'Precio de catálogo (precio de venta)', t: 'money', req: 1 },
+    { k: 'costo', l: 'Costo (lo que te cobra Terramar)', t: 'money', help: 'Se calcula solo: la mitad del precio de catálogo + 16%. Puedes cambiarlo si es otro.' },
     { k: 'minimo', l: 'Avisarme cuando queden (piezas)', t: 'int', help: 'Déjalo vacío si no quieres aviso de stock bajo.' }] },
   entradas: { title: 'Registrar mercancía que llegó', one: 'compra', many: 'compras', f: [
     fecha, { k: 'productoId', l: 'Producto', t: 'sel', src: 'productos', req: 1, quick: 1 },
@@ -881,6 +881,11 @@ function wire() {
     if (el.dataset.q) { q[el.dataset.q] = el.value; return table(el.dataset.q); }
     if (el.id === 'q-ped') return pedidos();
     if (el.id === 'q-mov') return movTable();
+    // Costo automático: mitad del precio de catálogo + 16%. Solo se reemplaza si el costo está vacío o lo puso la página.
+    if (el.form && el.name === 'precio' && el.form.elements.costo && (el.form.id === 'f-productos' || el.form.dataset.c === 'productos')) {
+      const fm = el.form, co = fm.elements.costo, auto = fm.dataset.autoCosto;
+      if (!co.value || co.value === auto) { const v = num(el.value) > 0 ? r2(num(el.value) / 2 * 1.16).toFixed(2) : ''; co.value = v; fm.dataset.autoCosto = v; }
+    }
     if (el.form) { if (el.classList.contains('it-q')) autoEntrega(); const c = el.form.id.slice(2); if (F[c]) applyShow(c, el.form); hints(); }
   });
   $('#dlg').addEventListener('click', e => { if (e.target === $('#dlg')) $('#dlg').close(); });
