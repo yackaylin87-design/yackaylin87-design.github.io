@@ -110,6 +110,7 @@ const F = {
     { k: 'telefono', l: 'WhatsApp', t: 'tel', ph: '55 1234 5678', help: '10 dígitos. Si es de otro país, ponle la lada al inicio.' },
     { k: 'nota', l: 'Dirección o notas', t: 'text' }] },
   productos: { title: 'Agregar producto', one: 'producto', many: 'productos', f: [
+    { k: 'foto', l: 'Foto del producto', t: 'photo', help: 'Opcional. Puedes tomarla con la cámara o elegirla de tu galería.' },
     { k: 'codigo', l: 'Código', t: 'text' },
     { k: 'nombre', l: 'Nombre del producto', t: 'text', req: 1 },
     { k: 'catalogo', l: 'Catálogo o campaña', t: 'list', list: 'catalogos', ph: 'Ej. Catálogo Noviembre' },
@@ -145,7 +146,9 @@ const F = {
 function fieldHTML(p, f) {
   const id = `${p}-${f.k}`; let h;
   if (f.t === 'sel') h = `<div class="selrow"><select id="${id}" name="${f.k}"></select>${f.quick ? `<button class="btn sm" type="button" data-quick="${f.src}" data-target="${id}">+ Nuevo</button>` : ''}</div>`;
-  else if (f.t === 'opt') h = `<select id="${id}" name="${f.k}">${f.opts.map(o => `<option>${o}</option>`).join('')}</select>`;
+  else if (f.t === 'photo') h = `<div class="fotobox"><img class="fprev" alt="" hidden><span class="fnone">Sin foto</span><input type="hidden" id="${id}" name="${f.k}">
+    <label class="btn sm">Elegir foto<input type="file" accept="image/*" data-foto hidden></label><button class="btn sm" type="button" data-fotox hidden>Quitar foto</button></div>`;
+  else if (f.t === 'opt') h =`<select id="${id}" name="${f.k}">${f.opts.map(o => `<option>${o}</option>`).join('')}</select>`;
   else if (f.t === 'items') {
     // Lista compacta arriba y un solo recuadro para elegir producto abajo (ventas y pedidos a Terramar).
     const compra = f.kind === 'compra';
@@ -177,6 +180,29 @@ function applyShow(c, fm) {
     if (f.onlyEdit && !(editing[c] && fm.id === 'f-' + c)) vis = false;
     box.hidden = !vis;
   }
+  fotoSync(fm);
+}
+// Foto: se achica en el teléfono (máx. 480 px) y se guarda junto con el producto.
+function fotoSync(fm) {
+  for (const b of fm.querySelectorAll('.fotobox')) {
+    const v = $('input[type=hidden]', b).value, img = $('.fprev', b);
+    img.hidden = !v; if (v) img.src = v; else img.removeAttribute('src');
+    $('.fnone', b).hidden = !!v; $('[data-fotox]', b).hidden = !v;
+    $('label', b).firstChild.textContent = v ? 'Cambiar foto' : 'Elegir foto';
+  }
+}
+function fotoLoad(file) {
+  return new Promise((ok, ko) => {
+    const url = URL.createObjectURL(file), im = new Image();
+    im.onload = () => {
+      const s = Math.min(1, 480 / Math.max(im.naturalWidth, im.naturalHeight)), cv = document.createElement('canvas');
+      cv.width = Math.round(im.naturalWidth * s); cv.height = Math.round(im.naturalHeight * s);
+      const cx = cv.getContext('2d'); cx.fillStyle = '#fff'; cx.fillRect(0, 0, cv.width, cv.height); cx.drawImage(im, 0, 0, cv.width, cv.height);
+      URL.revokeObjectURL(url); ok(cv.toDataURL('image/jpeg', 0.72));
+    };
+    im.onerror = () => { URL.revokeObjectURL(url); ko(new Error('img')); };
+    im.src = url;
+  });
 }
 
 function buildForms() {
@@ -228,7 +254,7 @@ function addLine(box) {
 function resetForm(c) {
   const fm = $('#f-' + c); if (!fm) return;
   fm.reset(); editing[c] = null; fm.dataset.touched = '';
-  for (const f of F[c].f) if (f.t === 'date') fm.elements[f.k].value = today();
+  for (const f of F[c].f) if (f.t === 'date') fm.elements[f.k].value = today(); else if (f.t === 'photo') fm.elements[f.k].value = '';
   const fi = F[c].f.find(f => f.t === 'items');
   if (fi) renderLines($(`#${c}-items`), []);
   $('#h-' + c).textContent = F[c].title; $('#b-' + c).textContent = F[c].saveLbl || 'Guardar';
@@ -432,12 +458,79 @@ function entradasTable() {
       <span class="ped-h"><b>${esc(g.name)}</b><small class="muted">${fe} · ${np} producto${np === 1 ? '' : 's'} · ${int(pz)} pieza${pz === 1 ? '' : 's'}</small></span>
       <span class="ped-n"><span><small>Te costó</small><b>${money(co)}</b></span><span><small>A precio de catálogo</small><b>${money(ca)}</b></span><span><small>Ganarías</small><b class="pos">${money(ca - co)}</b></span></span>
       <span class="ped-v" aria-hidden="true">Ver productos</span></summary>
-      <div class="ped-t">${tableHTML(R2, list.map(r => ({ ...r, h: r.h.slice(0, 6) })), r => acts('entradas', r.id, ''))}</div></details>`;
+      <div class="ped-t"><div class="cards">${list.map(r => { const e = E[r.id]; return `<button class="vc" type="button" data-entrada="${esc(e.id)}">${fotosDe([e.productoId])}
+        <span class="vc-t">${esc(pName(e.productoId))}</span><span class="vc-m"><b>${money(eCosto(e))}</b></span>
+        <span class="vc-s">${num(e.cantidad)} pza${num(e.cantidad) === 1 ? '' : 's'} × ${money(e.costo)}</span></button>`; }).join('')}</div></div></details>`;
   }).join('');
   el.innerHTML = html || `<p class="empty">Nada coincide con “${esc(q.entradas)}”.</p>`;
 }
+// Productos en mosaico: foto, nombre y existencias. Al tocarlo se abre con todos sus datos.
+const stockTxt = st => st < 0 ? `Faltan ${-st}` : st <= 0 ? 'Agotado' : `${st} pza${st === 1 ? '' : 's'}`;
+const stockCls = p => { const st = C.stock[p.id] || 0; return st <= 0 ? 'p-acc' : isLow(p) ? 'p-warn' : 'p-ok'; };
+const fotoHTML = (p, cls) => p.foto ? `<img class="${cls}" src="${esc(p.foto)}" alt="" loading="lazy">` : `<span class="${cls} sinfoto" aria-hidden="true">${esc((String(p.nombre || '?').trim()[0] || '?').toUpperCase())}</span>`;
+// Piezas vendidas de cada producto (sumando todas las ventas).
+const vendidas = () => { const m = {}; for (const v of S.ventas) for (const i of items(v)) m[i.productoId] = (m[i.productoId] || 0) + num(i.cantidad); return m; };
+function productosGrid() {
+  const el = $('#t-productos'); if (!el) return;
+  const R = rows('productos'), t = (q.productos || '').toLowerCase().trim(), list = R.r.filter(r => !t || r.v.join(' ').toLowerCase().includes(t));
+  if (!R.r.length) { el.innerHTML = '<p class="empty">Todavía no hay productos. Usa el formulario para agregar el primero.</p>'; return; }
+  if (!list.length) { el.innerHTML = `<p class="empty">Nada coincide con “${esc(q.productos)}”.</p>`; return; }
+  const vend = vendidas();
+  el.innerHTML = `<div class="mosaico">${list.map(r => { const p = byId('productos', r.id), st = C.stock[p.id] || 0, nv = vend[p.id] || 0;
+    return `<button class="mos" type="button" data-prod="${esc(p.id)}">${fotoHTML(p, 'mos-f')}
+      <span class="mos-b"><span class="mos-n">${esc(p.nombre)}</span><span class="pill ${stockCls(p)}">${stockTxt(st)}</span></span>
+      <span class="mos-p">${money(p.precio)}${p.codigo ? ` · <span class="muted">${esc(p.codigo)}</span>` : ''}</span>
+      <span class="mos-v">${nv ? `Vendido <b>${int(nv)}</b> ${nv === 1 ? 'vez' : 'veces'}` : 'Sin ventas todavía'}</span></button>`; }).join('')}</div>`;
+}
+function verProducto(id) {
+  const p = byId('productos', id); if (!p) return;
+  const st = C.stock[id] || 0, gan = num(p.precio) - num(p.costo);
+  const vend = vendidas()[id] || 0;
+  const comp = sum(S.entradas.filter(e => e.productoId === id), e => e.cantidad);
+  const row = (l, v) => `<li><span class="muted">${l}</span><span class="n">${v}</span></li>`;
+  openDlg(p.nombre, `<div class="pv">${fotoHTML(p, 'pv-f')}<div class="pv-s"><span class="pill ${stockCls(p)}">${st < 0 ? stockTxt(st) : st <= 0 ? 'Agotado' : `Tienes ${st} pieza${st === 1 ? '' : 's'}`}</span>${st < 0 ? '<small class="muted">Vendiste más de lo que tienes: falta que llegue.</small>' : ''}</div></div>
+    <ul class="list">${row('Código', esc(p.codigo || '—'))}${row('Catálogo', esc(p.catalogo || '—'))}${row('Precio de venta', `<b>${money(p.precio)}</b>`)}${row('Costo', money(p.costo))}${row('Ganas por pieza', `<b class="pos">${money(gan)}</b>`)}${row('Piezas que te han llegado', int(comp))}${row('Piezas vendidas', int(vend))}</ul>
+    <div class="btns">${acts('productos', id)}</div>`);
+}
+// Fotos de los productos de una venta (máximo 3, encimadas) y foto chica junto a un nombre.
+const fotosDe = pids => { const u = [...new Set(pids)], P = u.slice(0, 3).map(id => fotoHTML(byId('productos', id) || { nombre: '?' }, '')); if (u.length > 3) P.push(`<span class="mas">+${u.length - 3}</span>`); return `<span class="fotos" aria-hidden="true">${P.join('')}</span>`; };
+const conFoto = (pid, html) => `<span class="th-w">${fotoHTML(byId('productos', pid) || { nombre: '?' }, 'th')}<span>${html}</span></span>`;
+const vResumen = v => { const its = items(v), n = sum(its, i => i.cantidad); return its.length ? `${esc(pName(its[0].productoId))}${its.length > 1 ? ` y ${its.length - 1} más` : ''} · ${int(n)} pza${n === 1 ? '' : 's'}` : 'Sin productos'; };
+function ventaCard(v, { pago = true } = {}) {
+  const e = payState(v), s = est(v), falta = C.vp[v.id] ?? vTotal(v);
+  return `<button class="vc" type="button" data-venta="${esc(v.id)}">${fotosDe(items(v).map(i => i.productoId))}
+    <span class="vc-t">${esc(cName(v.clienteId))}</span><span class="vc-m"><b>${money(vTotal(v))}</b>${falta > 0.005 ? `<br><small class="neg">falta ${money(falta)}</small>` : ''}</span>
+    <span class="vc-s">${fdate(v.fecha)} · ${vResumen(v)}</span>
+    <span class="vc-p"><span class="pill ${estPill(s)}">${s}</span>${pago ? `<span class="pill ${payPill(e)}">${e}</span>` : ''}</span></button>`;
+}
+function ventasCards() {
+  const el = $('#t-ventas'); if (!el) return;
+  const R = rows('ventas'), t = (q.ventas || '').toLowerCase().trim(), list = R.r.filter(r => !t || r.v.join(' ').toLowerCase().includes(t));
+  el.innerHTML = !R.r.length ? '<p class="empty">Todavía no hay ventas. Usa el formulario para agregar la primera.</p>'
+    : !list.length ? `<p class="empty">Nada coincide con “${esc(q.ventas)}”.</p>`
+    : `<div class="cards">${list.map(r => ventaCard(byId('ventas', r.id))).join('')}</div>`;
+}
+function verVenta(id) {
+  const v = byId('ventas', id); if (!v) return;
+  const e = payState(v), s = est(v), t = vTotal(v), falta = C.vp[id] ?? t, nx = nextEst(s), cl = byId('clientes', v.clienteId);
+  const row = (l, x) => `<li><span class="muted">${l}</span><span class="n">${x}</span></li>`;
+  openDlg(cName(v.clienteId), `<div class="vc-p" style="margin-bottom:8px"><span class="pill ${estPill(s)}">${s}</span><span class="pill ${payPill(e)}">${e}</span></div>
+    <ul class="list pv-items">${items(v).map(i => { const p = byId('productos', i.productoId) || { nombre: pName(i.productoId) }; return `<li>${fotoHTML(p, 'th lg')}<span class="grow"><b>${esc(pName(i.productoId))}</b><br><span class="small muted">${num(i.cantidad)} × ${money(i.precio)}</span></span><span class="n"><b>${money(num(i.cantidad) * num(i.precio))}</b></span></li>`; }).join('')}</ul>
+    <ul class="list" style="margin-top:8px">${row('Fecha', fdate(v.fecha))}${row('Total', `<b>${money(t)}</b>`)}${row('Ya pagó', money(t - Math.max(0, falta)))}${row('Le falta', falta > 0.005 ? `<span class="neg">${money(falta)}</span>` : money(0))}${row('Ganancia', `<b class="pos">${money(t - vCosto(v))}</b>`)}${v.origen ? row('Origen', esc(v.origen)) : ''}${v.campana ? row('Campaña', esc(v.campana)) : ''}${v.nota ? row('Nota', esc(v.nota)) : ''}</ul>
+    <div class="btns">${nx ? `<button class="btn sm pri" type="button" data-adv="${esc(id)}" data-to="${nx}">Marcar: ${nx}</button>` : ''}${falta > 0.005 ? `<button class="btn sm" type="button" data-newab="${esc(v.clienteId)}">Registrar abono</button>` : ''}${cl ? waLink(cl, C.cl[cl.id]?.saldo || 0) : ''}${acts('ventas', id)}</div>`);
+}
+function verEntrada(id) {
+  const e = byId('entradas', id); if (!e) return;
+  const p = byId('productos', e.productoId) || { nombre: pName(e.productoId) };
+  const row = (l, x) => `<li><span class="muted">${l}</span><span class="n">${x}</span></li>`;
+  openDlg(pName(e.productoId), `<div class="pv">${fotoHTML(p, 'pv-f')}<div class="pv-s"><span class="pill p-info">${num(e.cantidad)} pieza${num(e.cantidad) === 1 ? '' : 's'}</span>${e.nota ? `<small class="muted">${esc(e.nota)}</small>` : ''}</div></div>
+    <ul class="list">${row('Fecha', fdate(e.fecha))}${row('Costo por pieza', money(e.costo))}${row('Total', `<b>${money(eCosto(e))}</b>`)}${row('Precio de catálogo', money(e.precioCat ?? p.precio))}${row('Ganarías', `<b class="pos">${money(eCat(e) - eCosto(e))}</b>`)}${num(e.pagado) ? row('Ya pagado', money(e.pagado)) : ''}</ul>
+    <div class="btns">${acts('entradas', id)}</div>`);
+}
 function table(c) {
   if (c === 'entradas') return entradasTable();
+  if (c === 'productos') return productosGrid();
+  if (c === 'ventas') return ventasCards();
   const el = $('#t-' + c); if (!el) return;
   const R = rows(c), t = (q[c] || '').toLowerCase().trim(), list = R.r.filter(r => !t || r.v.join(' ').toLowerCase().includes(t));
   el.innerHTML = !R.r.length ? `<p class="empty">Todavía no hay ${F[c].many}. Usa el formulario para agregar el primero.</p>`
@@ -497,12 +590,11 @@ function pedidos() {
   for (const v of S.ventas) if (est(v) === 'Por pedir a Terramar') for (const i of items(v)) pp[i.productoId] = (pp[i.productoId] || 0) + num(i.cantidad);
   const e = Object.entries(pp).sort((a, b) => pName(a[0]).localeCompare(pName(b[0]), 'es'));
   const costo = sum(e, ([id, n]) => n * num(byId('productos', id)?.costo));
-  $('#porpedir').innerHTML = e.length ? e.map(([id, n]) => { const p = byId('productos', id); return `<li><span>${esc(pName(id))}${p?.codigo ? ` <span class="small muted">${esc(p.codigo)}</span>` : ''}</span><span class="n"><b>${n}</b> pza${n === 1 ? '' : 's'}</span></li>`; }).join('') + `<li><span class="muted">Costo aproximado</span><span class="n"><b>${money(costo)}</b></span></li>` : '<li class="empty" style="display:block">No hay nada pendiente por pedir.</li>';
+  $('#porpedir').innerHTML = e.length ? e.map(([id, n]) => { const p = byId('productos', id); return `<li>${conFoto(id, `${esc(pName(id))}${p?.codigo ? ` <span class="small muted">${esc(p.codigo)}</span>` : ''}`)}<span class="n"><b>${n}</b> pza${n === 1 ? '' : 's'}</span></li>`; }).join('') + `<li><span class="muted">Costo aproximado</span><span class="n"><b>${money(costo)}</b></span></li>` : '<li class="empty" style="display:block">No hay nada pendiente por pedir.</li>';
   $('#porpedir-b').innerHTML = e.length ? '<button class="btn pri" type="button" data-addporpedir>Pasar a mi próximo pedido</button> <button class="btn" type="button" id="ya-pedi">Ya hice el pedido a Terramar</button> <button class="btn" type="button" id="copy-ped">Copiar lista</button>' : '';
   const t = ($('#q-ped').value || '').toLowerCase(), fs = $('#f-ped').value;
   const L = S.ventas.filter(v => est(v) !== 'Entregado' && (!fs || est(v) === fs)).sort(ord(1)).filter(v => !t || `${cName(v.clienteId)} ${vDesc(v)} ${est(v)}`.toLowerCase().includes(t));
-  const R = { h: ['Fecha', 'Cliente', 'Productos', 'Le falta pagar', 'Estado'], n: [3] };
-  $('#t-pedidos').innerHTML = L.length ? tableHTML(R, L.map(v => ({ id: v.id, h: [fdate(v.fecha), esc(cName(v.clienteId)), esc(vDesc(v)), money(C.vp[v.id] ?? 0), `<span class="pill ${estPill(est(v))}">${est(v)}</span>`] })), r => { const nx = nextEst(est(byId('ventas', r.id))); return nx ? `<button class="btn sm pri" type="button" data-adv="${esc(r.id)}" data-to="${nx}">Marcar: ${nx}</button>` : ''; })
+  $('#t-pedidos').innerHTML = L.length ? `<div class="cards">${L.map(v => { const nx = nextEst(est(v)); return `<div class="vc-w">${ventaCard(v, { pago: false })}${nx ? `<button class="btn sm pri" type="button" data-adv="${esc(v.id)}" data-to="${nx}">Marcar: ${nx}</button>` : ''}</div>`; }).join('')}</div>`
     : `<p class="empty">${S.ventas.length ? 'No hay pedidos pendientes aquí.' : 'Aún no hay pedidos. Registra una venta para empezar.'}</p>`;
 }
 
@@ -550,7 +642,7 @@ function lista() {
     ${listo ? `<p class="ok-msg">✓ Ya alcanzaste el pedido mínimo${total - min > 0.005 ? `. Llevas ${money(total - min)} de más` : ''}. Puedes seguir agregando.</p>` : `<p>Te faltan <b class="neg">${money(falta)}</b> para llegar al pedido mínimo.</p>`}` : ''}
     ${porPrecio && L.length ? `<p class="small muted" style="margin-top:4px">Lo que le pagarías a Terramar (a costo): <b>${money(costo)}</b></p>` : ''}</div>`;
   const R = { h: ['Producto', 'Piezas', 'Costo c/u', 'Precio c/u', 'Subtotal'], n: [2, 3, 4] };
-  $('#t-lista').innerHTML = L.length ? tableHTML(R, L.map(l => { const p = byId('productos', l.productoId); return { id: l.id, h: [`<b>${esc(pName(l.productoId))}</b>${p?.codigo ? ` <span class="small muted">${esc(p.codigo)}</span>` : ''}`,
+  $('#t-lista').innerHTML = L.length ? tableHTML(R, L.map(l => { const p = byId('productos', l.productoId); return { id: l.id, h: [conFoto(l.productoId, `<b>${esc(pName(l.productoId))}</b>${p?.codigo ? ` <span class="small muted">${esc(p.codigo)}</span>` : ''}`),
     `<span class="stepper"><button class="btn sm" type="button" data-lq="${esc(l.id)}" data-d="-1" aria-label="Una pieza menos">−</button><b>${num(l.cantidad)}</b><button class="btn sm" type="button" data-lq="${esc(l.id)}" data-d="1" aria-label="Una pieza más">+</button></span>`,
     money(p?.costo), money(p?.precio), `<b>${money(num(l.cantidad) * val(l))}</b>`] }; }), r => `<button class="btn sm del" type="button" data-lrm="${esc(r.id)}">Quitar</button>`)
     : '<p class="empty">Tu lista está vacía. Agrega productos con el formulario o toca “Agregar lo que tengo por pedir”.</p>';
@@ -907,19 +999,24 @@ function wire() {
       navigator.clipboard?.writeText(txt).then(() => toast('Lista copiada. Pégala en WhatsApp o donde hagas tu pedido.'), () => toast('No se pudo copiar.', 'warn')); return;
     }
     if (b.id === 'dlg-x') return $('#dlg').close();
+    if ('fotox' in b.dataset) { const box = b.closest('.fotobox'); $('input[type=hidden]', box).value = ''; fotoSync(box.closest('form')); return; }
+    if (b.dataset.prod) return verProducto(b.dataset.prod);
+    if (b.dataset.venta) return verVenta(b.dataset.venta);
+    if (b.dataset.entrada) return verEntrada(b.dataset.entrada);
     if ('addline' in b.dataset) { const box = b.closest('.ad'); if (addLine(box)) $('.ad-p', box).focus(); hints(); return; }
     if ('rmline' in b.dataset) { const li = b.closest('li'), ul = li.parentElement, box = $('#' + ul.id.replace(/-list$/, '')); li.remove(); renderLines(box, readLines(box.closest('form'))); if (box.dataset.kind === 'venta') autoEntrega(); hints(); return; }
     if (b.dataset.quick) return quickAdd(b.dataset.quick, b.dataset.target);
     if (b.dataset.cancel) return resetForm(b.dataset.cancel);
-    if (b.dataset.ed) return startEdit(b.dataset.ed, b.dataset.id);
+    if (b.dataset.ed) { if (b.closest('#dlg')) $('#dlg').close(); return startEdit(b.dataset.ed, b.dataset.id); }
     if (b.dataset.ver) return verCliente(b.dataset.ver);
     if (b.dataset.newsale) { $('#dlg').close(); go('ventas'); resetForm('ventas'); $('#ventas-clienteId').value = b.dataset.newsale; hints(); return; }
     if (b.dataset.newab) { $('#dlg').close(); go('abonos'); resetForm('abonos'); $('#abonos-clienteId').value = b.dataset.newab; hints(); setTimeout(() => $('#abonos-monto').focus(), 100); return; }
     if (b.dataset.del) {
       if (!b.dataset.sure) { b.dataset.sure = 1; b.textContent = '¿Seguro? Toca otra vez'; setTimeout(() => { if (b.isConnected) { delete b.dataset.sure; b.textContent = 'Borrar'; } }, 4000); return; }
+      if (b.closest('#dlg')) $('#dlg').close();
       return remove(b.dataset.del, b.dataset.id);
     }
-    if (b.dataset.adv) { commit([{ t: 'update', c: 'ventas', id: b.dataset.adv, data: { entrega: b.dataset.to } }]); toast('Pedido: ' + b.dataset.to + '.'); return; }
+    if (b.dataset.adv) { if (b.closest('#dlg')) $('#dlg').close(); commit([{ t: 'update', c: 'ventas', id: b.dataset.adv, data: { entrega: b.dataset.to } }]); toast('Pedido: ' + b.dataset.to + '.'); return; }
     if (b.id === 'ya-pedi') { const ops = S.ventas.filter(v => est(v) === 'Por pedir a Terramar').map(v => ({ t: 'update', c: 'ventas', id: v.id, data: { entrega: 'Pedido a Terramar' } })); commit(ops); toast(`${ops.length} venta${ops.length === 1 ? '' : 's'} marcada${ops.length === 1 ? '' : 's'} como “Pedido a Terramar”.`); return; }
     if (b.id === 'copy-ped') {
       const pp = {}; for (const v of S.ventas) if (est(v) === 'Por pedir a Terramar') for (const i of items(v)) pp[i.productoId] = (pp[i.productoId] || 0) + num(i.cantidad);
@@ -949,6 +1046,11 @@ function wire() {
   });
   document.addEventListener('change', e => {
     const el = e.target, fm = el.form;
+    if ('foto' in el.dataset) {
+      const f = el.files[0], box = el.closest('.fotobox'); el.value = ''; if (!f) return;
+      fotoLoad(f).then(d => { $('input[type=hidden]', box).value = d; fotoSync(box.closest('form')); }, () => toast('No pude abrir esa foto. Prueba con otra.', 'warn'));
+      return;
+    }
     if (el.id === 'imp-file') { if (el.files[0]) importXLSX(el.files[0]); el.value = ''; return; }
     if (el.id === 'm-pre') { M.pre = el.value; return metricas(); }
     if (el.id === 'm-a' || el.id === 'm-b') { M.pre = 'custom'; $('#m-pre').value = 'custom'; M[el.id.slice(2)] = el.value; return metricas(); }
