@@ -502,11 +502,18 @@ function productosGrid() {
   if (!R.r.length) { el.innerHTML = '<p class="empty">Todavía no hay productos. Usa el formulario para agregar el primero.</p>'; return; }
   if (!list.length) { el.innerHTML = `<p class="empty">Nada coincide con “${esc(q.productos)}”.</p>`; return; }
   const vend = vendidas();
-  el.innerHTML = `<div class="mosaico">${list.map(r => { const p = byId('productos', r.id), st = C.stock[p.id] || 0, nv = vend[p.id] || 0;
+  const card = r => { const p = byId('productos', r.id), st = C.stock[p.id] || 0, nv = vend[p.id] || 0;
     return `<button class="mos" type="button" data-prod="${esc(p.id)}">${fotoHTML(p, 'mos-f')}
       <span class="mos-b"><span class="mos-n">${esc(p.nombre)}</span><span class="pill ${stockCls(p)}">${stockTxt(st)}</span></span>
       <span class="mos-p">${money(p.precio)}${p.codigo ? ` · <span class="muted">${esc(p.codigo)}</span>` : ''}</span>
-      <span class="mos-v">${nv ? `Vendido <b>${int(nv)}</b> ${nv === 1 ? 'vez' : 'veces'}` : 'Sin ventas todavía'}</span></button>`; }).join('')}</div>`;
+      <span class="mos-v">${nv ? `Vendido <b>${int(nv)}</b> ${nv === 1 ? 'vez' : 'veces'}` : 'Sin ventas todavía'}</span></button>`; };
+  const hay = r => (C.stock[r.id] || 0) > 0;
+  el.innerHTML = splitHTML(list.filter(hay).map(card), list.filter(r => !hay(r)).map(card), { l: '✅ En stock', r: '⛔ Agotados', lc: 'ok', rc: 'bad', grid: 'mosaico', le: 'Nada en stock.', re: 'Nada agotado.' });
+}
+// Dos lados: a la izquierda lo verde (o lo pendiente, según la pestaña) y a la derecha lo otro. En el celular quedan uno arriba del otro.
+function splitHTML(L, R, o) {
+  const side = (arr, lbl, cls, emp) => `<div class="sp-c"><h4 class="sp-h ${cls}">${lbl} <span>${arr.length}</span></h4>${arr.length ? `<div class="${o.grid || 'tiles'}">${arr.join('')}</div>` : `<p class="empty small">${emp}</p>`}</div>`;
+  return `<div class="split">${side(L, o.l, o.lc, o.le)}${side(R, o.r, o.rc, o.re)}</div>`;
 }
 function verProducto(id) {
   const p = byId('productos', id); if (!p) return;
@@ -534,7 +541,8 @@ function ventasCards() {
   const R = rows('ventas'), t = (q.ventas || '').toLowerCase().trim(), list = R.r.filter(r => !t || r.v.join(' ').toLowerCase().includes(t));
   el.innerHTML = !R.r.length ? '<p class="empty">Todavía no hay ventas. Usa el formulario para agregar la primera.</p>'
     : !list.length ? `<p class="empty">Nada coincide con “${esc(q.ventas)}”.</p>`
-    : `<div class="tiles">${list.map(r => ventaCard(byId('ventas', r.id))).join('')}</div>`;
+    : (() => { const V = list.map(r => byId('ventas', r.id)), lista = v => payState(v) === 'Pagada' && est(v) === 'Entregado';
+      return splitHTML(V.filter(v => !lista(v)).map(v => ventaCard(v)), V.filter(lista).map(v => ventaCard(v)), { l: '⏳ Les falta algo', r: '✅ Pagadas y entregadas', lc: 'bad', rc: 'ok', le: 'Ninguna pendiente. ¡Todo al día!', re: 'Todavía ninguna completa.' }); })();
 }
 function verVenta(id) {
   const v = byId('ventas', id); if (!v) return;
@@ -577,6 +585,8 @@ function tilesTable(c) {
   const R = rows(c), t = (q[c] || '').toLowerCase().trim(), list = R.r.filter(r => !t || r.v.join(' ').toLowerCase().includes(t));
   el.innerHTML = !R.r.length ? `<p class="empty">Todavía no hay ${F[c].many}. Usa el formulario para agregar el primero.</p>`
     : !list.length ? `<p class="empty">Nada coincide con “${esc(q[c])}”.</p>`
+    : c === 'clientes' ? (() => { const X = list.map(r => byId(c, r.id)), debe = x => (C.cl[x.id]?.saldo || 0) > 0.005;
+      return splitHTML(X.filter(debe).map(TILE[c]), X.filter(x => !debe(x)).map(TILE[c]), { l: '🔴 Te deben', r: '✅ Al corriente', lc: 'bad', rc: 'ok', le: 'Nadie te debe. ¡Todo cobrado!', re: 'Nadie está al corriente todavía.' }); })()
     : `<div class="tiles">${list.map(r => TILE[c](byId(c, r.id))).join('')}</div>`;
 }
 // Detalle de cualquier registro: todos sus datos y los botones Editar / Borrar.
