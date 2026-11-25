@@ -486,9 +486,7 @@ function entradasTable() {
       <span class="ped-h"><b>${esc(g.name)}</b><small class="muted">${fe} · ${np} producto${np === 1 ? '' : 's'} · ${int(pz)} pieza${pz === 1 ? '' : 's'}</small></span>
       <span class="ped-n"><span><small>Te costó</small><b>${money(co)}</b></span><span><small>A precio de catálogo</small><b>${money(ca)}</b></span><span><small>Ganarías</small><b class="pos">${money(ca - co)}</b></span></span>
       <span class="ped-v" aria-hidden="true">Ver productos</span></summary>
-      <div class="ped-t"><div class="cards">${list.map(r => { const e = E[r.id]; return `<button class="vc" type="button" data-entrada="${esc(e.id)}">${fotosDe([e.productoId])}
-        <span class="vc-t">${esc(pName(e.productoId))}</span><span class="vc-m"><b>${money(eCosto(e))}</b></span>
-        <span class="vc-s">${num(e.cantidad)} pza${num(e.cantidad) === 1 ? '' : 's'} × ${money(e.costo)}</span></button>`; }).join('')}</div></div></details>`;
+      <div class="ped-t"><div class="tiles">${list.map(r => { const e = E[r.id]; return tile({ attr: `data-entrada="${esc(e.id)}"`, cls: 'tl-v', ico: fotoHTML(byId('productos', e.productoId) || { nombre: pName(e.productoId) }, ''), t: esc(pName(e.productoId)), big: money(eCosto(e)), s: `${num(e.cantidad)} pza${num(e.cantidad) === 1 ? '' : 's'} × ${money(e.costo)}` }); }).join('')}</div></div></details>`;
   }).join('');
   el.innerHTML = html || `<p class="empty">Nada coincide con “${esc(q.entradas)}”.</p>`;
 }
@@ -525,18 +523,18 @@ const fotosDe = pids => { const u = [...new Set(pids)], P = u.slice(0, 3).map(id
 const conFoto = (pid, html) => `<span class="th-w">${fotoHTML(byId('productos', pid) || { nombre: '?' }, 'th')}<span>${html}</span></span>`;
 const vResumen = v => { const its = items(v), n = sum(its, i => i.cantidad); return its.length ? `${esc(pName(its[0].productoId))}${its.length > 1 ? ` y ${its.length - 1} más` : ''} · ${int(n)} pza${n === 1 ? '' : 's'}` : 'Sin productos'; };
 function ventaCard(v, { pago = true } = {}) {
-  const e = payState(v), s = est(v), falta = C.vp[v.id] ?? vTotal(v);
-  return `<button class="vc" type="button" data-venta="${esc(v.id)}">${fotosDe(items(v).map(i => i.productoId))}
-    <span class="vc-t">${esc(cName(v.clienteId))}</span><span class="vc-m"><b>${money(vTotal(v))}</b>${falta > 0.005 ? `<br><small class="neg">falta ${money(falta)}</small>` : ''}</span>
-    <span class="vc-s">${fdate(v.fecha)} · ${vResumen(v)}</span>
-    <span class="vc-p"><span class="pill ${estPill(s)}">${s}</span>${pago ? `<span class="pill ${payPill(e)}">${e}</span>` : ''}</span></button>`;
+  // Mosaico de la venta: foto del producto (y "+N" si lleva más), clienta en grande, total y estado.
+  const e = payState(v), s = est(v), falta = C.vp[v.id] ?? vTotal(v), ps = [...new Set(items(v).map(i => i.productoId))];
+  const ico = fotoHTML(byId('productos', ps[0]) || { nombre: '?' }, '') + (ps.length > 1 ? `<span class="tl-n">+${ps.length - 1}</span>` : '');
+  return tile({ attr: `data-venta="${esc(v.id)}"`, cls: 'tl-v', ico, t: esc(cName(v.clienteId)), big: `${money(vTotal(v))}${falta > 0.005 ? `<small class="tl-f">Falta ${money(falta)}</small>` : ''}`, s: `${fdate(v.fecha)} · ${vResumen(v)}`,
+    pills: `<span class="pill ${estPill(s)}">${s}</span>${pago ? `<span class="pill ${payPill(e)}">${e}</span>` : ''}` });
 }
 function ventasCards() {
   const el = $('#t-ventas'); if (!el) return;
   const R = rows('ventas'), t = (q.ventas || '').toLowerCase().trim(), list = R.r.filter(r => !t || r.v.join(' ').toLowerCase().includes(t));
   el.innerHTML = !R.r.length ? '<p class="empty">Todavía no hay ventas. Usa el formulario para agregar la primera.</p>'
     : !list.length ? `<p class="empty">Nada coincide con “${esc(q.ventas)}”.</p>`
-    : `<div class="cards">${list.map(r => ventaCard(byId('ventas', r.id))).join('')}</div>`;
+    : `<div class="tiles">${list.map(r => ventaCard(byId('ventas', r.id))).join('')}</div>`;
 }
 function verVenta(id) {
   const v = byId('ventas', id); if (!v) return;
@@ -680,7 +678,7 @@ function pedidos() {
   $('#porpedir-b').innerHTML = e.length ? '<button class="btn pri" type="button" data-addporpedir>Pasar a mi próximo pedido</button> <button class="btn" type="button" id="ya-pedi">Ya hice el pedido a Terramar</button> <button class="btn" type="button" id="copy-ped">Copiar lista</button>' : '';
   const t = ($('#q-ped').value || '').toLowerCase(), fs = $('#f-ped').value;
   const L = S.ventas.filter(v => est(v) !== 'Entregado' && (!fs || est(v) === fs)).sort(ord(1)).filter(v => !t || `${cName(v.clienteId)} ${vDesc(v)} ${est(v)}`.toLowerCase().includes(t));
-  $('#t-pedidos').innerHTML = L.length ? `<div class="cards">${L.map(v => { const nx = nextEst(est(v)); return `<div class="vc-w">${ventaCard(v, { pago: false })}${nx ? `<button class="btn sm pri" type="button" data-adv="${esc(v.id)}" data-to="${nx}">Marcar: ${nx}</button>` : ''}</div>`; }).join('')}</div>`
+  $('#t-pedidos').innerHTML = L.length ? `<div class="tiles">${L.map(v => { const nx = nextEst(est(v)); return `<div class="tl-w">${ventaCard(v, { pago: false })}${nx ? `<button class="btn sm pri" type="button" data-adv="${esc(v.id)}" data-to="${nx}">Marcar: ${nx}</button>` : ''}</div>`; }).join('')}</div>`
     : `<p class="empty">${S.ventas.length ? 'No hay pedidos pendientes aquí.' : 'Aún no hay pedidos. Registra una venta para empezar.'}</p>`;
 }
 

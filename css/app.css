@@ -183,6 +183,16 @@ button.tl:hover{border-color:var(--mute)}
 .tl-l{cursor:default}
 .tl-l .tl-i{border-radius:10px}
 .tl-l .btn.del{margin-top:4px}
+/* Ventas, pedidos y compras: la foto del producto más grande, cuadrada */
+.tl-v .tl-i{width:72px;height:72px;border-radius:12px;position:relative;background:#fff;font-size:26px}
+.tl-v .tl-i>.sinfoto{background:var(--grid);color:var(--mute)}
+.tl-n{position:absolute;right:3px;bottom:3px;background:var(--ink);color:var(--bg);font-size:11px;font-weight:600;border-radius:99px;padding:1px 6px}
+.tl-v .tl-t{font-size:17px}
+.tl-f{display:block;font-size:13px;font-weight:600;color:var(--acc)}
+.tl-v .tl-p .pill{font-size:11px;padding:1px 7px;line-height:1.4}
+.tl-w{display:flex;flex-direction:column;gap:6px;min-width:0}
+.tl-w>.tl{flex:1}
+.tl-w>.btn{white-space:normal}
 .dl-ico{font-size:44px;line-height:1;margin-bottom:10px}
 @media (max-width:640px){.tiles{grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}.tl{padding:10px}.tl-m{font-size:16px}.tl-cli .tl-t{font-size:17px}}
 .vc-w{display:grid;gap:6px;justify-items:start}
