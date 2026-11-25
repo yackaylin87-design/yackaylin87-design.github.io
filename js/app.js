@@ -45,6 +45,12 @@ const nextEst = s => s === 'Llegó' || s === 'Pendiente por entregar' ? 'Entrega
 const ORIGENES = ['Meta Ads', 'Recomendación', 'Clienta frecuente', 'Otro'];
 const METODOS = ['Efectivo', 'Transferencia', 'Tarjeta', 'Otro'];
 const CATS = ['Meta Ads', 'Envíos', 'Empaque', 'Otros'];
+// Cuenta abierta: dinero que la clienta te deja guardado para después.
+// "Guardar" = te dio dinero que no se usa para pagar nada todavía. "Usar" = paga una venta con ese dinero (no es dinero nuevo).
+const USO = 'De su cuenta abierta', DEP = 'Guardar en su cuenta abierta', PAGAR = 'Pagar lo que debe';
+const METCL = [...METODOS, USO];
+const esDep = a => a.destino === DEP, esUso = a => a.metodo === USO;
+const cash = a => !esUso(a); // dinero que de verdad recibiste
 const est = v => ESTADOS.includes(v?.entrega) ? v.entrega : 'Entregado';
 const estPill = s => s === 'Entregado' ? 'p-ok' : s === 'Llegó' || s === 'Pendiente por entregar' ? 'p-info' : s === 'Pedido a Terramar' ? 'p-warn' : 'p-acc';
 const payPill = e => e === 'Pagada' ? 'p-ok' : e === 'Parcial' ? 'p-warn' : 'p-acc';
@@ -65,12 +71,17 @@ function compute() {
   for (const e of S.entradas) stock[e.productoId] = (stock[e.productoId] || 0) + num(e.cantidad);
   for (const r of S.regalos) if (r.productoId) stock[r.productoId] = (stock[r.productoId] || 0) + num(r.cantidad);
   for (const v of S.ventas) for (const i of items(v)) stock[i.productoId] = (stock[i.productoId] || 0) - num(i.cantidad);
-  const g = id => cl[id] || (cl[id] = { vendido: 0, abonado: 0, n: 0, ultima: '' });
+  const g = id => cl[id] || (cl[id] = { vendido: 0, abonado: 0, n: 0, ultima: '', cuenta: 0 });
   for (const c of S.clientes) g(c.id);
   const porCli = {};
   for (const v of S.ventas) { const k = g(v.clienteId); k.vendido += vTotal(v); k.n++; if (String(v.fecha) > k.ultima) k.ultima = v.fecha; (porCli[v.clienteId] = porCli[v.clienteId] || []).push(v); }
   const abCli = {};
-  for (const a of S.abonos) { g(a.clienteId).abonado += num(a.monto); (abCli[a.clienteId] = abCli[a.clienteId] || []).push(a); }
+  for (const a of S.abonos) {
+    const k = g(a.clienteId);
+    if (esDep(a)) { k.cuenta += num(a.monto); continue; } // guardado: no paga ventas
+    if (esUso(a)) k.cuenta -= num(a.monto);
+    k.abonado += num(a.monto); (abCli[a.clienteId] = abCli[a.clienteId] || []).push(a);
+  }
   // Abonos: el abono inicial se aplica a su venta; el resto, de la venta más antigua a la más nueva.
   for (const id in cl) {
     const k = cl[id]; k.saldo = k.vendido - k.abonado;
@@ -99,14 +110,16 @@ const F = {
     { k: 'campana', l: 'Campaña de Meta Ads', t: 'list', list: 'campanas', show: o => o.origen === 'Meta Ads', ph: 'Ej. Navidad' },
     { k: 'entrega', l: 'Estado del pedido', t: 'opt', opts: ESTADOS },
     { k: 'inicial', l: 'Abono inicial (opcional)', t: 'money', onlyNew: 1 },
-    { k: 'metodoIni', l: 'Método del abono inicial', t: 'opt', opts: METODOS, onlyNew: 1, show: o => num(o.inicial) > 0 },
+    { k: 'metodoIni', l: 'Método del abono inicial', t: 'opt', opts: METCL, onlyNew: 1, show: o => num(o.inicial) > 0, help: 'Si te da más de lo que cuesta, lo que sobra se guarda en su cuenta abierta.' },
     nota] },
   abonos: { title: 'Registrar abono', one: 'abono', many: 'abonos', f: [
     fecha, { k: 'clienteId', l: 'Cliente', t: 'sel', src: 'clientes', req: 1 },
-    { k: 'monto', l: 'Monto abonado', t: 'money', req: 1 },
-    { k: 'metodo', l: 'Método de pago', t: 'opt', opts: METODOS }, nota] },
+    { k: 'destino', l: '¿Para qué es este dinero?', t: 'opt', opts: [PAGAR, DEP] },
+    { k: 'monto', l: 'Monto', t: 'money', req: 1 },
+    { k: 'metodo', l: 'Método de pago', t: 'opt', opts: METCL, help: 'Elige “De su cuenta abierta” para pagar con el dinero que te dejó guardado.' }, nota] },
   clientes: { title: 'Agregar cliente', one: 'cliente', many: 'clientes', f: [
     { k: 'nombre', l: 'Nombre', t: 'text', req: 1 },
+    { k: 'genero', l: 'Es…', t: 'opt', opts: ['Mujer', 'Hombre'] },
     { k: 'telefono', l: 'WhatsApp', t: 'tel', ph: '55 1234 5678', help: '10 dígitos. Si es de otro país, ponle la lada al inicio.' },
     { k: 'nota', l: 'Dirección o notas', t: 'text' }] },
   productos: { title: 'Agregar producto', one: 'producto', many: 'productos', f: [
@@ -321,20 +334,32 @@ function save(c, fm, { quick = false } = {}) {
     if (!o.items.length) { toast('Agrega al menos un producto a la venta.', 'warn'); return null; }
     if (o.items.some(i => i.cantidad <= 0)) { toast('Revisa las cantidades: deben ser 1 o más.', 'warn'); return null; }
   }
+  // Cuenta abierta: no se puede usar más dinero del que la clienta tiene guardado.
+  const disp = (cid, exceptId) => { const k = C.cl[cid]?.cuenta || 0, prev = exceptId && byId('abonos', exceptId); return k + (prev && esUso(prev) ? num(prev.monto) : 0) - (prev && esDep(prev) ? num(prev.monto) : 0); };
+  if (c === 'abonos') {
+    if (esUso(o) && esDep(o)) { toast('Para guardar dinero en su cuenta elige cómo te pagó (efectivo, transferencia…).', 'warn'); return null; }
+    if (esUso(o) && o.monto > disp(o.clienteId, !quick && editing[c]) + 0.005) { toast(`Solo tiene ${money(Math.max(0, disp(o.clienteId, !quick && editing[c])))} en su cuenta abierta.`, 'warn'); return null; }
+  }
+  if (c === 'ventas' && !(!quick && editing[c]) && num(o.inicial) > 0 && o.metodoIni === USO && o.inicial > disp(o.clienteId) + 0.005) { toast(`Solo tiene ${money(Math.max(0, disp(o.clienteId)))} en su cuenta abierta.`, 'warn'); return null; }
   if (c === 'regalos' && !o.productoId && !o.descripcion) { toast('Elige el producto o escribe qué te regalaron.', 'warn'); return null; }
   const id = (!quick && editing[c]) || store.newId(c);
   const ini = o.inicial || 0, metIni = o.metodoIni || 'Efectivo';
   delete o.inicial; delete o.metodoIni;
-  const ops = [];
+  const ops = []; let extraMsg = '';
   if (!quick && editing[c]) { o.creado = byId(c, id)?.creado || Date.now(); ops.push({ t: 'set', c, id, data: o, merge: true }); }
   else {
     o.creado = Date.now(); ops.push({ t: 'set', c, id, data: o });
-    if (c === 'ventas' && ini > 0) ops.push({ t: 'set', c: 'abonos', id: store.newId('abonos'), data: { fecha: o.fecha, clienteId: o.clienteId, monto: ini, metodo: metIni, nota: 'Abono inicial', ventaId: id, creado: Date.now() + 1 } });
+    if (c === 'ventas' && ini > 0) {
+      // Si te dio más de lo que cuesta, lo que sobra se guarda en su cuenta abierta.
+      const t = vTotal(o), pago = Math.min(ini, t), sobra = metIni === USO ? 0 : r2(ini - t);
+      if (pago > 0) ops.push({ t: 'set', c: 'abonos', id: store.newId('abonos'), data: { fecha: o.fecha, clienteId: o.clienteId, monto: r2(pago), metodo: metIni, destino: PAGAR, nota: 'Abono inicial', ventaId: id, creado: Date.now() + 1 } });
+      if (sobra > 0.005) { ops.push({ t: 'set', c: 'abonos', id: store.newId('abonos'), data: { fecha: o.fecha, clienteId: o.clienteId, monto: sobra, metodo: metIni, destino: DEP, nota: 'Le sobró de la venta del ' + fdate(o.fecha), creado: Date.now() + 2 } }); extraMsg = ` Se guardaron ${money(sobra)} en su cuenta abierta.`; }
+    }
   }
   const wasEdit = !quick && editing[c];
   commit(ops);
   const fem = ['venta', 'compra'].includes(F[c].one);
-  toast(`${cap(F[c].one)} ${wasEdit ? 'actualizad' : 'guardad'}${fem ? 'a' : 'o'}.`);
+  toast(`${cap(F[c].one)} ${wasEdit ? 'actualizad' : 'guardad'}${fem ? 'a' : 'o'}.${extraMsg}`);
   if (!quick) resetForm(c);
   return id;
 }
@@ -375,9 +400,12 @@ function hints() {
   if (its.length) h.push(`${its.length} producto${its.length === 1 ? '' : 's'} en esta venta`);
   if (t) h.push(`Total de la venta: <b>${money(t)}</b>`);
   if (c) h.push(`Saldo actual de ${esc(cName(c))}: <b>${money(C.cl[c]?.saldo || 0)}</b>`);
+  if (c && (C.cl[c]?.cuenta || 0) > 0.005) h.push(`💰 Tiene <b class="pos">${money(C.cl[c].cuenta)}</b> en su cuenta abierta. Para usarlo, pon el abono inicial y elige “${USO}”.`);
+  { const ini = num(fv.elements.inicial?.value); if (t && ini > t + 0.005 && fv.elements.metodoIni?.value !== USO && !editing.ventas) h.push(`Le sobran <b class="pos">${money(ini - t)}</b>: se guardarán en su cuenta abierta.`); }
   $('#hint-ventas').innerHTML = h.join('<br>');
-  const ca = $('#f-abonos').elements.clienteId.value;
-  $('#hint-abonos').innerHTML = ca ? `${esc(cName(ca))} debe: <b>${money(C.cl[ca]?.saldo || 0)}</b>. El abono se descuenta de su venta más antigua.` : '';
+  const fa = $('#f-abonos'), ca = fa.elements.clienteId.value, cu = C.cl[ca]?.cuenta || 0;
+  $('#hint-abonos').innerHTML = ca ? (fa.elements.destino.value === DEP ? `Este dinero se guarda en su cuenta abierta y no paga ninguna venta todavía. Ahorita tiene: <b>${money(cu)}</b>.`
+    : `${esc(cName(ca))} debe: <b>${money(C.cl[ca]?.saldo || 0)}</b>. El abono se descuenta de su venta más antigua.${cu > 0.005 ? `<br>💰 Tiene <b class="pos">${money(cu)}</b> en su cuenta abierta. Para usarlo elige método “${USO}”.` : ''}`) : '';
   const fen = $('#f-entradas'), fe = fen.elements;
   if (editing.entradas) {
     const pe = fe.productoId.value, tot = num(fe.cantidad.value) * num(fe.costo.value);
@@ -417,16 +445,16 @@ function rows(c) {
     const stH = isLow(p) ? `<span class="pill ${st <= 0 ? 'p-acc' : 'p-warn'}">${st}</span>` : st < 0 ? `<span class="pill p-acc" title="Vendido sin stock: falta que llegue">${st}</span>` : st;
     return { id: p.id, v: [i + 1, p.codigo, p.nombre, p.catalogo, r2(p.costo), r2(p.precio), r2(gan), st], h: [`<span class="muted">${i + 1}</span>`, esc(p.codigo), `<b>${esc(p.nombre)}</b>`, esc(p.catalogo), money(p.costo), money(p.precio), money(gan), stH] };
   }) };
-  if (c === 'clientes') return { h: ['Cliente', 'WhatsApp', 'Compras', 'Comprado', 'Abonado', 'Saldo'], n: [2, 3, 4, 5], r: [...S.clientes].sort(byName).map(x => {
+  if (c === 'clientes') return { h: ['Cliente', 'WhatsApp', 'Compras', 'Comprado', 'Abonado', 'Saldo', 'Cuenta abierta'], n: [2, 3, 4, 5, 6], r: [...S.clientes].sort(byName).map(x => {
     const k = cl[x.id] || { vendido: 0, abonado: 0, saldo: 0, n: 0 };
-    return { id: x.id, click: 1, extra: waLink(x, k.saldo) + ` <button class="btn sm" type="button" data-ver="${esc(x.id)}">Ver</button> `, v: [x.nombre, x.telefono, k.n, r2(k.vendido), r2(k.abonado), r2(k.saldo)],
-      h: [`<b>${esc(x.nombre)}</b>${x.nota ? `<br><span class="small muted">${esc(x.nota)}</span>` : ''}`, esc(x.telefono), k.n, money(k.vendido), money(k.abonado), k.saldo > 0.005 ? `<span class="neg">${money(k.saldo)}</span>` : k.saldo < -0.005 ? `<span class="pill p-ok">A favor ${money(-k.saldo)}</span>` : money(0)] };
+    return { id: x.id, click: 1, extra: waLink(x, k.saldo) + ` <button class="btn sm" type="button" data-ver="${esc(x.id)}">Ver</button> `, v: [x.nombre, x.telefono, k.n, r2(k.vendido), r2(k.abonado), r2(k.saldo), r2(k.cuenta || 0)],
+      h: [`<b>${esc(x.nombre)}</b>${x.nota ? `<br><span class="small muted">${esc(x.nota)}</span>` : ''}`, esc(x.telefono), k.n, money(k.vendido), money(k.abonado), k.saldo > 0.005 ? `<span class="neg">${money(k.saldo)}</span>` : k.saldo < -0.005 ? `<span class="pill p-ok">A favor ${money(-k.saldo)}</span>` : money(0), money(k.cuenta || 0)] };
   }) };
   if (c === 'ventas') return { h: ['Fecha', 'Cliente', 'Productos', 'Total', 'Le falta', 'Pago', 'Entrega', 'Origen'], n: [3, 4], r: [...S.ventas].sort(ord(0)).map(v => {
     const t = vTotal(v), p = C.vp[v.id] ?? t, e = payState(v), o = v.origen ? v.origen + (v.campana ? ' · ' + v.campana : '') : '';
     return { id: v.id, v: [fdate(v.fecha), cName(v.clienteId), vDesc(v), r2(t), r2(p), e, est(v), o], h: [fdate(v.fecha), esc(cName(v.clienteId)), esc(vDesc(v)), `<b>${money(t)}</b>`, p > 0.005 ? `<span class="neg">${money(p)}</span>` : money(0), `<span class="pill ${payPill(e)}">${e}</span>`, `<span class="pill ${estPill(est(v))}">${est(v)}</span>`, `<span class="small">${esc(o)}</span>`] };
   }) };
-  if (c === 'abonos') return { h: ['Fecha', 'Cliente', 'Monto', 'Método', 'Nota'], n: [2], r: [...S.abonos].sort(ord(0)).map(a => ({ id: a.id, v: [fdate(a.fecha), cName(a.clienteId), r2(a.monto), a.metodo, a.nota], h: [fdate(a.fecha), esc(cName(a.clienteId)), `<b>${money(a.monto)}</b>`, esc(a.metodo), esc(a.nota)] })) };
+  if (c === 'abonos') return { h: ['Fecha', 'Cliente', 'Monto', 'Método', 'Para qué', 'Nota'], n: [2], r: [...S.abonos].sort(ord(0)).map(a => { const d = esDep(a) ? 'Guardado en su cuenta abierta' : esUso(a) ? 'Pagó con su cuenta abierta' : 'Pagar lo que debe'; return { id: a.id, v: [fdate(a.fecha), cName(a.clienteId), r2(a.monto), a.metodo, d, a.nota], h: [fdate(a.fecha), esc(cName(a.clienteId)), `<b>${money(a.monto)}</b>`, esc(a.metodo), d, esc(a.nota)] }; }) };
   if (c === 'entradas') return { h: ['Fecha', 'Producto', 'Piezas', 'Costo c/u', 'Total', 'Pagado', 'Nota'], n: [2, 3, 4, 5], r: [...S.entradas].sort(ord(0)).map(e => ({ id: e.id, v: [fdate(e.fecha), pName(e.productoId), num(e.cantidad), r2(e.costo), r2(eCosto(e)), r2(e.pagado), e.nota], h: [fdate(e.fecha), esc(pName(e.productoId)), num(e.cantidad), money(e.costo), `<b>${money(eCosto(e))}</b>`, money(e.pagado), esc(e.nota)] })) };
   if (c === 'pagos') return { h: ['Fecha', 'Monto', 'Método', 'Nota'], n: [1], r: [...S.pagos].sort(ord(0)).map(p => ({ id: p.id, v: [fdate(p.fecha), r2(p.monto), p.metodo, p.nota], h: [fdate(p.fecha), `<b>${money(p.monto)}</b>`, esc(p.metodo), esc(p.nota)] })) };
   if (c === 'regalos') return { h: ['Fecha', 'Regalo', 'Piezas', 'Valor c/u', 'Valor total', 'Nota'], n: [2, 3, 4], r: [...S.regalos].sort(ord(0)).map(r => ({ id: r.id, v: [fdate(r.fecha), rName(r), num(r.cantidad), r2(r.valor), r2(num(r.valor) * num(r.cantidad)), r.nota], h: [fdate(r.fecha), `<b>${esc(rName(r))}</b>${r.productoId ? '' : ' <span class="pill p-mute">Fuera de tu lista</span>'}`, num(r.cantidad), money(r.valor), `<b>${money(num(r.valor) * num(r.cantidad))}</b>`, esc(r.nota)] })) };
@@ -527,10 +555,68 @@ function verEntrada(id) {
     <ul class="list">${row('Fecha', fdate(e.fecha))}${row('Costo por pieza', money(e.costo))}${row('Total', `<b>${money(eCosto(e))}</b>`)}${row('Precio de catálogo', money(e.precioCat ?? p.precio))}${row('Ganarías', `<b class="pos">${money(eCat(e) - eCosto(e))}</b>`)}${num(e.pagado) ? row('Ya pagado', money(e.pagado)) : ''}</ul>
     <div class="btns">${acts('entradas', id)}</div>`);
 }
+/* ============ Mosaicos para todas las listas ============ */
+// Cada registro es un cuadrito con icono, lo importante en grande, y al tocarlo se abre todo su detalle.
+const gIco = x => x?.genero === 'Hombre' ? '👨' : x?.genero === 'Mujer' ? '👩' : '👤';
+const catIco = c => ({ 'Meta Ads': '📣', 'Envíos': '🚚', 'Empaque': '🎁' }[c] || '🧾');
+const abIco = a => esDep(a) ? '💰' : esUso(a) ? '🔁' : '💵';
+const abTag = a => esDep(a) ? '<span class="pill p-info">Guardado en su cuenta</span>' : esUso(a) ? '<span class="pill p-mute">Pagado con su cuenta</span>' : '';
+const tile = ({ attr, ico, t, big, bigCls = '', s = '', pills = '', cls = '' }) => `<button class="tl ${cls}" type="button" ${attr}><span class="tl-i" aria-hidden="true">${ico}</span><span class="tl-t">${t}</span>${big != null ? `<span class="tl-m ${bigCls}">${big}</span>` : ''}${s ? `<span class="tl-s">${s}</span>` : ''}${pills ? `<span class="tl-p">${pills}</span>` : ''}</button>`;
+function clienteTile(x) {
+  const k = C.cl[x.id] || { saldo: 0, n: 0, cuenta: 0 };
+  const big = k.saldo > 0.005 ? `Debe ${money(k.saldo)}` : k.saldo < -0.005 ? `A favor ${money(-k.saldo)}` : 'Al corriente';
+  return tile({ attr: `data-ver="${esc(x.id)}"`, cls: 'tl-cli', ico: gIco(x), t: esc(x.nombre), big, bigCls: k.saldo > 0.005 ? 'neg' : 'pos', s: `${k.n} compra${k.n === 1 ? '' : 's'}${x.telefono ? ' · ' + esc(x.telefono) : ''}`, pills: k.cuenta > 0.005 ? `<span class="pill p-info">💰 Cuenta abierta ${money(k.cuenta)}</span>` : '' });
+}
+const TILE = {
+  clientes: x => clienteTile(x),
+  abonos: a => tile({ attr: `data-fila="abonos" data-id="${esc(a.id)}"`, ico: abIco(a), t: esc(cName(a.clienteId)), big: money(a.monto), bigCls: esDep(a) ? '' : 'pos', s: `${fdate(a.fecha)}${a.metodo && !esUso(a) ? ' · ' + esc(a.metodo) : ''}`, pills: abTag(a) }),
+  pagos: p => tile({ attr: `data-fila="pagos" data-id="${esc(p.id)}"`, ico: '🏦', t: money(p.monto), s: `${fdate(p.fecha)}${p.metodo ? ' · ' + esc(p.metodo) : ''}${p.nota ? '<br>' + esc(p.nota) : ''}` }),
+  regalos: r => tile({ attr: `data-fila="regalos" data-id="${esc(r.id)}"`, ico: r.productoId ? fotoHTML(byId('productos', r.productoId) || { nombre: rName(r) }, '') : '🎀', t: esc(rName(r)), big: money(num(r.valor) * num(r.cantidad)), bigCls: 'pos', s: `${num(r.cantidad)} pza${num(r.cantidad) === 1 ? '' : 's'} · ${fdate(r.fecha)}`, pills: r.productoId ? '' : '<span class="pill p-mute">Fuera de tu lista</span>' }),
+  gastos: g => tile({ attr: `data-fila="gastos" data-id="${esc(g.id)}"`, ico: catIco(g.categoria), t: esc(g.categoria || 'Gasto'), big: money(g.monto), bigCls: 'neg', s: `${fdate(g.fecha)}${g.campana ? ' · ' + esc(g.campana) : ''}` }),
+};
+function tilesTable(c) {
+  const el = $('#t-' + c); if (!el) return;
+  const R = rows(c), t = (q[c] || '').toLowerCase().trim(), list = R.r.filter(r => !t || r.v.join(' ').toLowerCase().includes(t));
+  el.innerHTML = !R.r.length ? `<p class="empty">Todavía no hay ${F[c].many}. Usa el formulario para agregar el primero.</p>`
+    : !list.length ? `<p class="empty">Nada coincide con “${esc(q[c])}”.</p>`
+    : `<div class="tiles">${list.map(r => TILE[c](byId(c, r.id))).join('')}</div>`;
+}
+// Detalle de cualquier registro: todos sus datos y los botones Editar / Borrar.
+function verFila(c, id) {
+  if (c === 'ventas') return verVenta(id);
+  if (c === 'entradas') return verEntrada(id);
+  if (c === 'clientes') return verCliente(id);
+  const R = rows(c), r = R.r.find(x => x.id === id); if (!r) return;
+  const x = byId(c, id), ico = c === 'abonos' ? abIco(x) : c === 'gastos' ? catIco(x.categoria) : c === 'pagos' ? '🏦' : '🎀';
+  const title = c === 'abonos' ? 'Abono de ' + cName(x.clienteId) : c === 'pagos' ? 'Pago a Terramar' : c === 'gastos' ? 'Gasto: ' + (x.categoria || '') : rName(x);
+  const head = c === 'regalos' && x.productoId ? `<div class="pv">${fotoHTML(byId('productos', x.productoId) || { nombre: rName(x) }, 'pv-f')}</div>` : `<div class="dl-ico" aria-hidden="true">${ico}</div>`;
+  openDlg(title, `${head}${c === 'abonos' ? `<p>${abTag(x)}</p>` : ''}<ul class="list">${R.h.map((h, i) => r.h[i] !== '' && r.h[i] != null ? `<li><span class="muted">${h}</span><span class="n" style="white-space:normal;text-align:end">${r.h[i]}</span></li>` : '').join('')}</ul>
+    <div class="btns">${c === 'abonos' ? `<button class="btn sm" type="button" data-ver="${esc(x.clienteId)}">Ver cliente</button>` : ''}${acts(c, id)}</div>`);
+}
+
+/* ============ Cuentas abiertas ============ */
+function cuentaMovs(id) { return S.abonos.filter(a => a.clienteId === id && (esDep(a) || esUso(a))).sort(ord(0)); }
+function cuentas() {
+  const el = $('#t-cuentas'); if (!el) return;
+  const L = S.clientes.filter(x => (C.cl[x.id]?.cuenta || 0) > 0.005 || cuentaMovs(x.id).length).sort((a, b) => (C.cl[b.id]?.cuenta || 0) - (C.cl[a.id]?.cuenta || 0) || byName(a, b));
+  const tot = sum(S.clientes, x => Math.max(0, C.cl[x.id]?.cuenta || 0)), con = S.clientes.filter(x => (C.cl[x.id]?.cuenta || 0) > 0.005).length;
+  $('#k-cuentas').innerHTML = [kpi('Dinero guardado de tus clientes', money(tot), { cls: tot > 0.005 ? 'good' : '', d: 'Es de ellos: se descuenta cuando te pidan algo' }), kpi('Clientes con cuenta abierta', int(con))].join('');
+  el.innerHTML = L.length ? `<div class="tiles">${L.map(x => { const cu = C.cl[x.id]?.cuenta || 0; return tile({ attr: `data-cuenta="${esc(x.id)}"`, cls: 'tl-cli', ico: gIco(x), t: esc(x.nombre), big: money(cu), bigCls: cu > 0.005 ? 'pos' : 'muted', s: cu > 0.005 ? 'Tiene guardado' : 'Ya lo usó todo' }); }).join('')}</div>`
+    : '<p class="empty">Nadie tiene cuenta abierta todavía. Cuando una clienta te deje dinero guardado, regístralo en <b>Abonos</b> eligiendo “Guardar en su cuenta abierta”, o pon en la venta un abono mayor al total.</p>';
+}
+function verCuenta(id) {
+  const x = byId('clientes', id); if (!x) return;
+  const k = C.cl[id] || { cuenta: 0, saldo: 0 }, M = cuentaMovs(id);
+  openDlg('Cuenta abierta de ' + x.nombre, `<div class="kpis">${kpi('Tiene guardado', money(k.cuenta), { cls: k.cuenta > 0.005 ? 'good' : '' })}${kpi('Te debe', money(Math.max(0, k.saldo)), { cls: k.saldo > 0.005 ? 'hot' : '' })}</div>
+    <div class="btns"><button class="btn sm pri" type="button" data-dep="${esc(id)}">💰 Guardar dinero</button>${k.cuenta > 0.005 ? `<button class="btn sm" type="button" data-uso="${esc(id)}">🔁 Usar para pagar</button>` : ''}<button class="btn sm" type="button" data-newsale="${esc(id)}">Nueva venta</button></div>
+    <h3 style="margin-top:18px">Movimientos de su cuenta</h3>${M.length ? `<ul class="list">${M.map(a => `<li><span class="grow">${abIco(a)} ${fdate(a.fecha)} · ${esDep(a) ? 'Guardó' : 'Usó para pagar'}${a.nota ? '<br><span class="small muted">' + esc(a.nota) + '</span>' : ''}</span><span class="n ${esDep(a) ? 'pos' : 'neg'}">${esDep(a) ? '+' : '−'}${money(a.monto)}</span></li>`).join('')}</ul>` : '<p class="empty">Sin movimientos.</p>'}`);
+}
+
 function table(c) {
   if (c === 'entradas') return entradasTable();
   if (c === 'productos') return productosGrid();
   if (c === 'ventas') return ventasCards();
+  if (TILE[c]) return tilesTable(c);
   const el = $('#t-' + c); if (!el) return;
   const R = rows(c), t = (q[c] || '').toLowerCase().trim(), list = R.r.filter(r => !t || r.v.join(' ').toLowerCase().includes(t));
   el.innerHTML = !R.r.length ? `<p class="empty">Todavía no hay ${F[c].many}. Usa el formulario para agregar el primero.</p>`
@@ -543,14 +629,14 @@ function kpi(label, value, { cls = '', d = '' } = {}) { return `<div class="kpi 
 function resumen() {
   const ym = today().slice(0, 7);
   const vm = S.ventas.filter(v => String(v.fecha).startsWith(ym));
-  const vend = sum(vm, vTotal), cob = sum(S.abonos.filter(a => String(a.fecha).startsWith(ym)), a => a.monto);
+  const vend = sum(vm, vTotal), cob = sum(S.abonos.filter(a => cash(a) && String(a.fecha).startsWith(ym)), a => a.monto);
   const gm = S.gastos.filter(g => String(g.fecha).startsWith(ym));
   const meta = sum(gm.filter(g => g.categoria === 'Meta Ads'), g => g.monto), otros = sum(gm.filter(g => g.categoria !== 'Meta Ads'), g => g.monto);
   const neta = vend - sum(vm, vCosto) - meta - otros;
   const deuda = sum(Object.values(C.cl), k => Math.max(0, k.saldo));
   const pend = S.ventas.filter(v => est(v) !== 'Entregado').length;
   const low = S.productos.filter(isLow);
-  const vTot = sum(S.ventas, vTotal), abTot = sum(S.abonos, a => a.monto);
+  const vTot = sum(S.ventas, vTotal), abTot = sum(S.abonos.filter(cash), a => a.monto);
   const metaTot = sum(S.gastos.filter(g => g.categoria === 'Meta Ads'), g => g.monto);
   const netaTot = vTot - sum(S.ventas, vCosto) - sum(S.gastos, g => g.monto);
   $('#k-mes').innerHTML = [
@@ -576,7 +662,7 @@ function resumen() {
   $('#deben').innerHTML = deb.length ? deb.slice(0, 8).map(([id, k]) => `<li><span class="grow">${esc(cName(id))}</span>${waLink(byId('clientes', id), k.saldo, 'Recordar')}<span class="n neg">${money(k.saldo)}</span></li>`).join('') : '<li class="empty" style="display:block">Nadie te debe. ¡Todo cobrado!</li>';
   const ms = []; const d = new Date(); d.setDate(1);
   for (let i = 5; i >= 0; i--) { const x = new Date(d.getFullYear(), d.getMonth() - i, 1); ms.push([`${x.getFullYear()}-${String(x.getMonth() + 1).padStart(2, '0')}`, MES[x.getMonth()]]); }
-  const data = ms.map(([k, l]) => ({ l, v: sum(S.ventas.filter(v => String(v.fecha).startsWith(k)), vTotal), c: sum(S.abonos.filter(a => String(a.fecha).startsWith(k)), a => a.monto) }));
+  const data = ms.map(([k, l]) => ({ l, v: sum(S.ventas.filter(v => String(v.fecha).startsWith(k)), vTotal), c: sum(S.abonos.filter(a => cash(a) && String(a.fecha).startsWith(k)), a => a.monto) }));
   const mx = Math.max(1, ...data.map(x => Math.max(x.v, x.c)));
   $('#bars').innerHTML = data.map(x => `<div class="r"><span>${x.l}</span><div><div class="bar" style="width:${x.v / mx * 100}%"></div><div class="bar-l">Vendido ${money(x.v)}</div><div class="bar c" style="width:${x.c / mx * 100}%"></div><div class="bar-l">Cobrado ${money(x.c)}</div></div></div>`).join('');
   $('#bajo').innerHTML = low.length ? low.sort((a, b) => (C.stock[a.id] || 0) - (C.stock[b.id] || 0)).slice(0, 10).map(p => { const st = C.stock[p.id] || 0; return `<li><span>${esc(p.nombre)}</span><span class="pill ${st <= 0 ? 'p-acc' : 'p-warn'}">${st <= 0 ? 'Agotado' : st + ' quedan'}</span></li>`; }).join('') : `<li class="empty" style="display:block">${S.productos.length ? 'Todo el inventario está en orden.' : 'Sin productos todavía.'}</li>`;
@@ -641,10 +727,13 @@ function lista() {
     ${min > 0 ? `<div class="track" role="progressbar" aria-valuemin="0" aria-valuemax="${min}" aria-valuenow="${r2(total)}"><i class="${listo ? 'ok' : ''}" style="width:${w}%"></i></div>
     ${listo ? `<p class="ok-msg">✓ Ya alcanzaste el pedido mínimo${total - min > 0.005 ? `. Llevas ${money(total - min)} de más` : ''}. Puedes seguir agregando.</p>` : `<p>Te faltan <b class="neg">${money(falta)}</b> para llegar al pedido mínimo.</p>`}` : ''}
     ${porPrecio && L.length ? `<p class="small muted" style="margin-top:4px">Lo que le pagarías a Terramar (a costo): <b>${money(costo)}</b></p>` : ''}</div>`;
-  const R = { h: ['Producto', 'Piezas', 'Costo c/u', 'Precio c/u', 'Subtotal'], n: [2, 3, 4] };
-  $('#t-lista').innerHTML = L.length ? tableHTML(R, L.map(l => { const p = byId('productos', l.productoId); return { id: l.id, h: [conFoto(l.productoId, `<b>${esc(pName(l.productoId))}</b>${p?.codigo ? ` <span class="small muted">${esc(p.codigo)}</span>` : ''}`),
-    `<span class="stepper"><button class="btn sm" type="button" data-lq="${esc(l.id)}" data-d="-1" aria-label="Una pieza menos">−</button><b>${num(l.cantidad)}</b><button class="btn sm" type="button" data-lq="${esc(l.id)}" data-d="1" aria-label="Una pieza más">+</button></span>`,
-    money(p?.costo), money(p?.precio), `<b>${money(num(l.cantidad) * val(l))}</b>`] }; }), r => `<button class="btn sm del" type="button" data-lrm="${esc(r.id)}">Quitar</button>`)
+  // Cada producto de la lista es un cuadrito con su foto, las piezas (− / +) y el subtotal.
+  $('#t-lista').innerHTML = L.length ? `<div class="tiles">${L.map(l => { const p = byId('productos', l.productoId) || { nombre: pName(l.productoId) };
+    return `<div class="tl tl-l"><span class="tl-i" aria-hidden="true">${fotoHTML(p, '')}</span><span class="tl-t">${esc(pName(l.productoId))}</span>
+      <span class="tl-s">${p.codigo ? esc(p.codigo) + ' · ' : ''}Costo ${money(p.costo)} · Precio ${money(p.precio)}</span>
+      <span class="stepper"><button class="btn sm" type="button" data-lq="${esc(l.id)}" data-d="-1" aria-label="Una pieza menos">−</button><b>${num(l.cantidad)}</b><button class="btn sm" type="button" data-lq="${esc(l.id)}" data-d="1" aria-label="Una pieza más">+</button></span>
+      <span class="tl-m">${money(num(l.cantidad) * val(l))}</span>
+      <button class="btn sm del" type="button" data-lrm="${esc(l.id)}">Quitar</button></div>`; }).join('')}</div>`
     : '<p class="empty">Tu lista está vacía. Agrega productos con el formulario o toca “Agregar lo que tengo por pedir”.</p>';
   const nPed = S.ventas.filter(v => est(v) === 'Pedido a Terramar').length;
   $('#lista-llego').innerHTML = L.length ? `<div style="border-top:1px solid var(--line);margin-top:14px;padding-top:6px">
@@ -682,7 +771,7 @@ function regalosView() {
 function movs() {
   return [
     ...S.ventas.map(v => ({ ...v, _t: 'Venta', _d: `${cName(v.clienteId)} · ${vDesc(v)}`, _m: vTotal(v), _c: 'ventas' })),
-    ...S.abonos.map(a => ({ ...a, _t: 'Abono', _d: `${cName(a.clienteId)}${a.metodo ? ' · ' + a.metodo : ''}`, _m: num(a.monto), _c: 'abonos' })),
+    ...S.abonos.map(a => ({ ...a, _t: 'Abono', _d: `${cName(a.clienteId)}${a.metodo ? ' · ' + a.metodo : ''}${esDep(a) ? ' · guardado en su cuenta abierta' : ''}`, _m: num(a.monto), _c: 'abonos' })),
     ...S.entradas.map(e => ({ ...e, _t: 'Compra a Terramar', _d: `${pName(e.productoId)} · ${num(e.cantidad)} pzas`, _m: eCosto(e), _c: 'entradas' })),
     ...S.pagos.map(p => ({ ...p, _t: 'Pago a Terramar', _d: p.metodo || '', _m: num(p.monto), _c: 'pagos' })),
     ...S.gastos.map(g => ({ ...g, _t: 'Gasto', _d: `${g.categoria}${g.campana ? ' · ' + g.campana : ''}`, _m: num(g.monto), _c: 'gastos' })),
@@ -694,9 +783,10 @@ function movList() {
   const t = ($('#q-mov').value || '').toLowerCase().trim(), ft = $('#f-mov').value;
   return movs().filter(m => (!ft || m._t === ft) && (!t || `${m._t} ${m._d} ${m.nota || ''} ${fdate(m.fecha)}`.toLowerCase().includes(t)));
 }
+const movIco = m => m._c === 'abonos' ? abIco(m) : ({ Venta: '🛍️', 'Compra a Terramar': '📦', 'Pago a Terramar': '🏦', Gasto: catIco(m.categoria), Regalo: '🎀' }[m._t] || '•');
 function movTable() {
-  const L = movList(), R = { h: ['Fecha', 'Tipo', 'Detalle', 'Monto', 'Nota'], n: [3] };
-  $('#t-movimientos').innerHTML = L.length ? tableHTML(R, L.slice(0, 500).map(m => ({ id: m.id, h: [fdate(m.fecha), `<span class="pill ${movPill(m._t)}">${m._t}</span>`, esc(m._d), money(m._m), esc(m.nota)] })), null) + (L.length > 500 ? `<p class="empty">Se muestran los 500 más recientes de ${L.length}. Usa el buscador para encontrar otros.</p>` : '') : '<p class="empty">No hay movimientos que coincidan.</p>';
+  const L = movList();
+  $('#t-movimientos').innerHTML = L.length ? `<div class="tiles">${L.slice(0, 500).map(m => tile({ attr: `data-fila="${m._c}" data-id="${esc(m.id)}"`, ico: movIco(m), t: `<span class="pill ${movPill(m._t)}">${m._t}</span>`, big: money(m._m), s: `${fdate(m.fecha)} · ${esc(m._d)}` })).join('')}</div>` + (L.length > 500 ? `<p class="empty">Se muestran los 500 más recientes de ${L.length}. Usa el buscador para encontrar otros.</p>` : '') : '<p class="empty">No hay movimientos que coincidan.</p>';
 }
 
 /* ============ Detalle de cliente ============ */
@@ -705,11 +795,12 @@ function verCliente(id) {
   const x = byId('clientes', id); if (!x) return;
   const k = C.cl[id] || { vendido: 0, abonado: 0, saldo: 0, n: 0 };
   const vs = S.ventas.filter(v => v.clienteId === id).sort(ord(0)), as = S.abonos.filter(a => a.clienteId === id).sort(ord(0));
-  openDlg(x.nombre, `<div class="kpis">${kpi('Comprado', money(k.vendido))}${kpi('Abonado', money(k.abonado))}${kpi('Saldo', money(k.saldo), { cls: k.saldo > 0.005 ? 'hot' : 'good' })}</div>
+  const cu = k.cuenta || 0;
+  openDlg(x.nombre, `<div class="dl-ico" aria-hidden="true">${gIco(x)}</div><div class="kpis">${kpi('Comprado', money(k.vendido))}${kpi('Abonado', money(k.abonado))}${kpi('Saldo', money(k.saldo), { cls: k.saldo > 0.005 ? 'hot' : 'good' })}${kpi('💰 Cuenta abierta', money(cu), { cls: cu > 0.005 ? 'good' : '' })}</div>
     <p class="sub" style="margin-top:12px">${x.telefono ? 'WhatsApp: ' + esc(x.telefono) : 'Sin WhatsApp registrado'}${x.nota ? ' · ' + esc(x.nota) : ''}</p>
-    <div class="btns">${waLink(x, k.saldo, k.saldo > 0.005 ? 'Enviar recordatorio por WhatsApp' : 'Abrir WhatsApp')}<button class="btn sm" type="button" data-newsale="${esc(id)}">Nueva venta</button><button class="btn sm" type="button" data-newab="${esc(id)}">Registrar abono</button></div>
+    <div class="btns">${waLink(x, k.saldo, k.saldo > 0.005 ? 'Enviar recordatorio por WhatsApp' : 'Abrir WhatsApp')}<button class="btn sm" type="button" data-newsale="${esc(id)}">Nueva venta</button><button class="btn sm" type="button" data-newab="${esc(id)}">Registrar abono</button><button class="btn sm" type="button" data-cuenta="${esc(id)}">💰 Cuenta abierta</button>${acts('clientes', id)}</div>
     <h3 style="margin-top:18px">Compras</h3>${vs.length ? `<ul class="list">${vs.map(v => `<li><span class="grow">${fdate(v.fecha)} · ${esc(vDesc(v))}<br><span class="pill ${payPill(payState(v))}">${payState(v)}</span> <span class="pill ${estPill(est(v))}">${est(v)}</span></span><span class="n"><b>${money(vTotal(v))}</b>${C.vp[v.id] > 0.005 ? `<br><span class="small neg">falta ${money(C.vp[v.id])}</span>` : ''}</span></li>`).join('')}</ul>` : '<p class="empty">Sin compras.</p>'}
-    <h3 style="margin-top:18px">Abonos</h3>${as.length ? `<ul class="list">${as.map(a => `<li><span>${fdate(a.fecha)} · ${esc(a.metodo || '')}${a.nota ? ' · ' + esc(a.nota) : ''}</span><span class="n">${money(a.monto)}</span></li>`).join('')}</ul>` : '<p class="empty">Sin abonos.</p>'}`);
+    <h3 style="margin-top:18px">Abonos</h3>${as.length ? `<ul class="list">${as.map(a => `<li><span>${abIco(a)} ${fdate(a.fecha)} · ${esc(a.metodo || '')}${a.nota ? ' · ' + esc(a.nota) : ''}${abTag(a) ? '<br>' + abTag(a) : ''}</span><span class="n">${money(a.monto)}</span></li>`).join('')}</ul>` : '<p class="empty">Sin abonos.</p>'}`);
 }
 function quickAdd(c, targetId) {
   const fl = F[c].f;
@@ -887,9 +978,9 @@ function metricas() {
 /* ============ Respaldo (Excel) ============ */
 const SHEETS = [
   ['Productos', 'productos', ['id', 'codigo', 'nombre', 'catalogo', 'costo', 'precio', 'minimo', 'creado']],
-  ['Clientes', 'clientes', ['id', 'nombre', 'telefono', 'nota', 'creado']],
+  ['Clientes', 'clientes', ['id', 'nombre', 'genero', 'telefono', 'nota', 'creado']],
   ['Ventas', 'ventas', ['id', 'fecha', 'clienteId', '_cliente', 'origen', 'campana', 'entrega', 'nota', '_total', 'items_json', 'creado']],
-  ['Abonos', 'abonos', ['id', 'fecha', 'clienteId', '_cliente', 'monto', 'metodo', 'nota', 'ventaId', 'creado']],
+  ['Abonos', 'abonos', ['id', 'fecha', 'clienteId', '_cliente', 'monto', 'metodo', 'destino', 'nota', 'ventaId', 'creado']],
   ['Compras Terramar', 'entradas', ['id', 'fecha', 'productoId', '_producto', 'cantidad', 'costo', 'precioCat', 'pagado', 'nota', 'creado']],
   ['Pagos Terramar', 'pagos', ['id', 'fecha', 'monto', 'metodo', 'nota', 'creado']],
   ['Gastos', 'gastos', ['id', 'fecha', 'categoria', 'campana', 'monto', 'mensajes', 'resultados', 'nota', 'creado']],
@@ -956,7 +1047,7 @@ function csvDownload(name, header, data) {
 }
 
 /* ============ Navegación y eventos ============ */
-const TABS = ['resumen', 'ventas', 'abonos', 'pedidos', 'clientes', 'productos', 'entradas', 'gastos', 'metricas', 'movimientos', 'respaldo'];
+const TABS = ['resumen', 'ventas', 'abonos', 'pedidos', 'clientes', 'cuentas', 'productos', 'entradas', 'gastos', 'metricas', 'movimientos', 'respaldo'];
 let cur = 'resumen';
 function go(t) { if (location.hash !== '#' + t) location.hash = t; else show(); }
 function show() {
@@ -972,7 +1063,7 @@ function render() {
   raf = setTimeout(() => {
     compute(); fillSelects();
     for (const c in F) table(c);
-    resumen(); pedidos(); terramar(); lista(); regalosView(); movTable(); hints(); backupInfo();
+    resumen(); pedidos(); terramar(); lista(); regalosView(); movTable(); cuentas(); hints(); backupInfo();
     if (cur === 'metricas') metricas();
   });
 }
@@ -1002,6 +1093,16 @@ function wire() {
     if ('fotox' in b.dataset) { const box = b.closest('.fotobox'); $('input[type=hidden]', box).value = ''; fotoSync(box.closest('form')); return; }
     if (b.dataset.prod) return verProducto(b.dataset.prod);
     if (b.dataset.venta) return verVenta(b.dataset.venta);
+    if (b.dataset.fila) return verFila(b.dataset.fila, b.dataset.id);
+    if (b.dataset.cuenta) return verCuenta(b.dataset.cuenta);
+    if (b.dataset.dep || b.dataset.uso) {
+      // Ir a Abonos con todo listo: guardar dinero, o usar lo guardado para pagar lo que debe.
+      const id = b.dataset.dep || b.dataset.uso, fa = $('#f-abonos'), k = C.cl[id] || {};
+      $('#dlg').close(); go('abonos'); resetForm('abonos'); fa.elements.clienteId.value = id;
+      if (b.dataset.dep) { fa.elements.destino.value = DEP; fa.elements.metodo.value = 'Efectivo'; }
+      else { fa.elements.destino.value = PAGAR; fa.elements.metodo.value = USO; const m = Math.min(k.cuenta || 0, Math.max(0, k.saldo || 0)) || (k.cuenta || 0); fa.elements.monto.value = m > 0 ? r2(m).toFixed(2) : ''; }
+      applyShow('abonos', fa); hints(); setTimeout(() => fa.elements.monto.focus(), 100); return;
+    }
     if (b.dataset.entrada) return verEntrada(b.dataset.entrada);
     if ('addline' in b.dataset) { const box = b.closest('.ad'); if (addLine(box)) $('.ad-p', box).focus(); hints(); return; }
     if ('rmline' in b.dataset) { const li = b.closest('li'), ul = li.parentElement, box = $('#' + ul.id.replace(/-list$/, '')); li.remove(); renderLines(box, readLines(box.closest('form'))); if (box.dataset.kind === 'venta') autoEntrega(); hints(); return; }

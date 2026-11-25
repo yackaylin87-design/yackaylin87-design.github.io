@@ -51,6 +51,7 @@
     <button data-t="abonos">Abonos</button>
     <button data-t="pedidos">Pedidos</button>
     <button data-t="clientes">Clientes</button>
+    <button data-t="cuentas">Cuentas abiertas</button>
     <button data-t="productos">Productos</button>
     <button data-t="entradas">Compras a Terramar</button>
     <button data-t="gastos">Gastos</button>
@@ -104,6 +105,18 @@
   </section>
 
   <section id="v-clientes" class="grid"><div data-form="clientes"></div><div data-table="clientes"></div></section>
+  <section id="v-cuentas">
+    <div class="kpis" id="k-cuentas"></div>
+    <div class="two">
+      <div class="card" style="grid-column:1/-1"><h3>Cuentas abiertas de tus clientes</h3>
+        <p class="sub small" style="margin-bottom:12px">Toca a un cliente para ver su cuenta, guardarle dinero o usarlo para pagar.</p>
+        <div id="t-cuentas"></div></div>
+      <div class="card" style="grid-column:1/-1"><h3>Cómo funciona</h3><ol class="steps">
+        <li>Si te da más de lo que cuesta su compra, pon el abono inicial completo en la venta: <b>lo que sobra se guarda solo</b> en su cuenta abierta.</li>
+        <li>Si te deja dinero sin comprar nada, ve a <b>Abonos</b> y elige “<b>Guardar en su cuenta abierta</b>”.</li>
+        <li>Cuando te pida algo, en el abono elige el método “<b>De su cuenta abierta</b>” y se descuenta de ahí.</li></ol></div>
+    </div>
+  </section>
   <section id="v-productos" class="grid"><div data-form="productos"></div><div data-table="productos"></div></section>
 
   <section id="v-entradas">

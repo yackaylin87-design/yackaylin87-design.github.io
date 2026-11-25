@@ -166,6 +166,25 @@ img.pv-f,img.fprev{padding:4px}
 .vc-m{text-align:end;font-variant-numeric:tabular-nums;white-space:nowrap}
 .vc-p{grid-column:2/-1;display:flex;gap:6px;flex-wrap:wrap}
 .vc-p .pill{font-size:12px}
+/* Mosaicos para todas las listas (clientes, abonos, gastos, pagos, regalos, movimientos…) */
+.tiles{display:grid;grid-template-columns:repeat(auto-fill,minmax(170px,1fr));gap:10px}
+.tl{display:flex;flex-direction:column;align-items:flex-start;gap:4px;text-align:start;background:var(--soft);border:1px solid var(--line);border-radius:12px;padding:12px;cursor:pointer;color:var(--ink);font:inherit;min-width:0}
+button.tl:hover{border-color:var(--mute)}
+.tl-i{width:46px;height:46px;border-radius:50%;background:var(--grid);display:grid;place-items:center;font-size:24px;line-height:1;overflow:hidden;margin-bottom:4px;flex:none}
+.tl-i>img{width:100%;height:100%;object-fit:contain;background:#fff}
+.tl-i>.sinfoto{width:100%;height:100%;display:grid;place-items:center;font-size:18px}
+.tl-t{font-weight:600;font-size:15px;line-height:1.3;overflow-wrap:anywhere}
+.tl-cli .tl-t{font-size:19px}
+.tl-cli .tl-i{width:54px;height:54px;font-size:30px}
+.tl-m{font-weight:600;font-size:18px;font-variant-numeric:tabular-nums}
+.tl-s{font-size:13px;color:var(--mute);overflow-wrap:anywhere;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+.tl-p{display:flex;flex-wrap:wrap;gap:4px;margin-top:2px}
+.tl-p .pill{font-size:12px;white-space:normal}
+.tl-l{cursor:default}
+.tl-l .tl-i{border-radius:10px}
+.tl-l .btn.del{margin-top:4px}
+.dl-ico{font-size:44px;line-height:1;margin-bottom:10px}
+@media (max-width:640px){.tiles{grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}.tl{padding:10px}.tl-m{font-size:16px}.tl-cli .tl-t{font-size:17px}}
 .vc-w{display:grid;gap:6px;justify-items:start}
 .th-w{display:inline-flex;align-items:center;gap:10px}
 .th{width:36px;height:36px;border-radius:8px;border:1px solid var(--line);object-fit:cover;background:#fff;flex:none;display:grid;place-items:center;font-size:15px}
