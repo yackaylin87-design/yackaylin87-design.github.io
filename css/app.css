@@ -266,6 +266,8 @@ button.tl:hover{border-color:var(--mute)}
 .stepper .btn{min-height:34px;min-width:34px;padding:2px 8px}
 .stepper b{min-width:2ch;text-align:center;font-variant-numeric:tabular-nums}
 .chk{display:flex;gap:10px;align-items:flex-start;font-size:14px;color:var(--mute);margin-top:12px;cursor:pointer}
+.fld label.chk{display:flex;color:var(--ink);font-size:15px;margin-top:14px;padding:10px 12px;border:1px solid var(--ok);border-radius:10px;background:var(--ok-bg)}
+.chk-d{font-weight:600;color:var(--ok)}
 .chk input{width:20px;height:20px;min-height:0;margin:1px 0 0;flex:none;accent-color:var(--brand)}
 
 /* Métricas */

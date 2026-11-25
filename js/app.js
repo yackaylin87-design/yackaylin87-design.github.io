@@ -51,6 +51,9 @@ const USO = 'De su cuenta abierta', DEP = 'Guardar en su cuenta abierta', PAGAR 
 const METCL = [...METODOS, USO];
 const esDep = a => a.destino === DEP, esUso = a => a.metodo === USO;
 const cash = a => !esUso(a); // dinero que de verdad recibiste
+// Lo que debe la clienta sin contar el abono que estás editando, y cuánto sobra si te da más que eso.
+const debeSin = (cid, exceptId) => { const prev = exceptId && byId('abonos', exceptId); return Math.max(0, (C.cl?.[cid]?.saldo || 0) + (prev && !esDep(prev) && prev.clienteId === cid ? num(prev.monto) : 0)); };
+const sobraAb = (o, exceptId) => !o.clienteId || o.destino === DEP || o.metodo === USO ? 0 : Math.max(0, r2(num(o.monto) - debeSin(o.clienteId, exceptId)));
 const est = v => ESTADOS.includes(v?.entrega) ? v.entrega : 'Entregado';
 const estPill = s => s === 'Entregado' ? 'p-ok' : s === 'Llegó' || s === 'Pendiente por entregar' ? 'p-info' : s === 'Pedido a Terramar' ? 'p-warn' : 'p-acc';
 const payPill = e => e === 'Pagada' ? 'p-ok' : e === 'Parcial' ? 'p-warn' : 'p-acc';
@@ -116,7 +119,8 @@ const F = {
     fecha, { k: 'clienteId', l: 'Cliente', t: 'sel', src: 'clientes', req: 1 },
     { k: 'destino', l: '¿Para qué es este dinero?', t: 'opt', opts: [PAGAR, DEP] },
     { k: 'monto', l: 'Monto', t: 'money', req: 1 },
-    { k: 'metodo', l: 'Método de pago', t: 'opt', opts: METCL, help: 'Elige “De su cuenta abierta” para pagar con el dinero que te dejó guardado.' }, nota] },
+    { k: 'metodo', l: 'Método de pago', t: 'opt', opts: METCL, help: 'Elige “De su cuenta abierta” para pagar con el dinero que te dejó guardado.' },
+    { k: 'sobra', l: 'Mandar lo que sobra a su cuenta abierta', t: 'chk', show: o => sobraAb(o, editing.abonos) > 0.005 }, nota] },
   clientes: { title: 'Agregar cliente', one: 'cliente', many: 'clientes', f: [
     { k: 'nombre', l: 'Nombre', t: 'text', req: 1 },
     { k: 'genero', l: 'Es…', t: 'opt', opts: ['Mujer', 'Hombre'] },
@@ -161,7 +165,8 @@ function fieldHTML(p, f) {
   if (f.t === 'sel') h = `<div class="selrow"><select id="${id}" name="${f.k}"></select>${f.quick ? `<button class="btn sm" type="button" data-quick="${f.src}" data-target="${id}">+ Nuevo</button>` : ''}</div>`;
   else if (f.t === 'photo') h = `<div class="fotobox"><img class="fprev" alt="" hidden><span class="fnone">Sin foto</span><input type="hidden" id="${id}" name="${f.k}">
     <label class="btn sm">Elegir foto<input type="file" accept="image/*" data-foto hidden></label><button class="btn sm" type="button" data-fotox hidden>Quitar foto</button></div>`;
-  else if (f.t === 'opt') h =`<select id="${id}" name="${f.k}">${f.opts.map(o => `<option>${o}</option>`).join('')}</select>`;
+  else if (f.t === 'chk') return `<div class="fld" data-k="${f.k}"><label class="chk"><input type="checkbox" id="${id}" name="${f.k}" checked><span>${f.l}<span class="chk-d" id="${id}-d"></span></span></label></div>`;
+  else if (f.t === 'opt') h = `<select id="${id}" name="${f.k}">${f.opts.map(o => `<option>${o}</option>`).join('')}</select>`;
   else if (f.t === 'items') {
     // Lista compacta arriba y un solo recuadro para elegir producto abajo (ventas y pedidos a Terramar).
     const compra = f.kind === 'compra';
@@ -282,7 +287,8 @@ function startEdit(c, id) {
   for (const f of F[c].f) {
     if (f.onlyNew) continue;
     if (f.t === 'items') { const box = $(`#${c}-items`); $$('input', box).forEach(i => i.value = i.classList.contains('ad-q') ? 1 : ''); $('.ad-p', box).value = ''; renderLines(box, items(x).map(i => ({ ...i, cantidad: num(i.cantidad), precio: r2(i.precio), costo: i.costo ?? r2(byId('productos', i.productoId)?.costo) }))); continue; }
-    const el = fm.elements[f.k]; el.value = x[f.k] ?? (f.t === 'opt' ? f.opts[0] : '');
+    const el = fm.elements[f.k]; if (f.t === 'chk') { el.checked = true; continue; }
+    el.value = x[f.k] ?? (f.t === 'opt' ? f.opts[0] : '');
     if ((f.t === 'money' || f.t === 'int') && !num(x[f.k]) && !f.req) el.value = '';
   }
   fm.dataset.touched = '1';
@@ -296,6 +302,7 @@ function readForm(c, fm) {
   const o = {}, vals = formVals(fm);
   for (const f of F[c].f) {
     if (f.t === 'items') { o.items = readLines(fm).map(({ productoId, cantidad, precio, costo, catalogo }) => f.kind === 'compra' ? { productoId, cantidad, precio, costo, catalogo } : { productoId, cantidad, precio, costo }); continue; }
+    if (f.t === 'chk') { o[f.k] = !!fm.elements[f.k]?.checked; continue; }
     let v = (fm.elements[f.k]?.value || '').trim();
     if (f.show && !f.show(vals)) v = '';
     if (f.t === 'money') v = r2(v); else if (f.t === 'int') v = Math.round(num(v));
@@ -340,6 +347,15 @@ function save(c, fm, { quick = false } = {}) {
     if (esUso(o) && esDep(o)) { toast('Para guardar dinero en su cuenta elige cómo te pagó (efectivo, transferencia…).', 'warn'); return null; }
     if (esUso(o) && o.monto > disp(o.clienteId, !quick && editing[c]) + 0.005) { toast(`Solo tiene ${money(Math.max(0, disp(o.clienteId, !quick && editing[c])))} en su cuenta abierta.`, 'warn'); return null; }
   }
+  // Abono mayor a lo que debe: lo que sobra se manda a su cuenta abierta (si dejaste la casilla marcada).
+  let depExtra = null;
+  if (c === 'abonos') {
+    const sob = sobraAb(o, !quick && editing[c]), on = o.sobra; delete o.sobra;
+    if (on && sob > 0.005) {
+      if (o.monto - sob <= 0.005) o.destino = DEP; // no debía nada: todo va a su cuenta
+      else { o.monto = r2(o.monto - sob); depExtra = { fecha: o.fecha, clienteId: o.clienteId, monto: sob, metodo: o.metodo, destino: DEP, nota: 'Le sobró del abono del ' + fdate(o.fecha), creado: Date.now() + 1 }; }
+    }
+  }
   if (c === 'ventas' && !(!quick && editing[c]) && num(o.inicial) > 0 && o.metodoIni === USO && o.inicial > disp(o.clienteId) + 0.005) { toast(`Solo tiene ${money(Math.max(0, disp(o.clienteId)))} en su cuenta abierta.`, 'warn'); return null; }
   if (c === 'regalos' && !o.productoId && !o.descripcion) { toast('Elige el producto o escribe qué te regalaron.', 'warn'); return null; }
   const id = (!quick && editing[c]) || store.newId(c);
@@ -356,6 +372,8 @@ function save(c, fm, { quick = false } = {}) {
       if (sobra > 0.005) { ops.push({ t: 'set', c: 'abonos', id: store.newId('abonos'), data: { fecha: o.fecha, clienteId: o.clienteId, monto: sobra, metodo: metIni, destino: DEP, nota: 'Le sobró de la venta del ' + fdate(o.fecha), creado: Date.now() + 2 } }); extraMsg = ` Se guardaron ${money(sobra)} en su cuenta abierta.`; }
     }
   }
+  if (depExtra) { ops.push({ t: 'set', c: 'abonos', id: store.newId('abonos'), data: depExtra }); extraMsg = ` Se guardaron ${money(depExtra.monto)} en su cuenta abierta.`; }
+  else if (c === 'abonos' && esDep(o) && !byId(c, id)) extraMsg = ' Quedó guardado en su cuenta abierta.';
   const wasEdit = !quick && editing[c];
   commit(ops);
   const fem = ['venta', 'compra'].includes(F[c].one);
@@ -405,7 +423,7 @@ function hints() {
   $('#hint-ventas').innerHTML = h.join('<br>');
   const fa = $('#f-abonos'), ca = fa.elements.clienteId.value, cu = C.cl[ca]?.cuenta || 0;
   $('#hint-abonos').innerHTML = ca ? (fa.elements.destino.value === DEP ? `Este dinero se guarda en su cuenta abierta y no paga ninguna venta todavía. Ahorita tiene: <b>${money(cu)}</b>.`
-    : `${esc(cName(ca))} debe: <b>${money(C.cl[ca]?.saldo || 0)}</b>. El abono se descuenta de su venta más antigua.${cu > 0.005 ? `<br>💰 Tiene <b class="pos">${money(cu)}</b> en su cuenta abierta. Para usarlo elige método “${USO}”.` : ''}`) : '';
+    : `${esc(cName(ca))} debe: <b>${money(debeSin(ca, editing.abonos))}</b>. El abono se descuenta de su venta más antigua.${(() => { const sb = sobraAb(formVals(fa), editing.abonos); $('#abonos-sobra-d').textContent = sb > 0.005 ? ` (${money(sb)})` : ''; return sb > 0.005 ? `<br>Te dio de más: <b class="pos">le sobran ${money(sb)}</b>.${fa.elements.sobra.checked ? ' Se guardarán en su cuenta abierta.' : ' Si no marcas la casilla, quedarán a su favor para su siguiente compra.'}` : ''; })()}${cu > 0.005 ? `<br>💰 Tiene <b class="pos">${money(cu)}</b> en su cuenta abierta. Para usarlo elige método “${USO}”.` : ''}`) : '';
   const fen = $('#f-entradas'), fe = fen.elements;
   if (editing.entradas) {
     const pe = fe.productoId.value, tot = num(fe.cantidad.value) * num(fe.costo.value);
